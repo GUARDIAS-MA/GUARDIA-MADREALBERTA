@@ -1,0 +1,1289 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guardias y ausencias del profesorado</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+<!-- ===================================================================
+     CONFIGURACIÓN: pega aquí los dos datos de tu proyecto de Supabase
+     (Project Settings → API). La clave pública puede estar a la vista:
+     lo que protege los datos son las políticas RLS del esquema SQL.
+     =================================================================== -->
+<script>
+  const SUPABASE_URL  = "https://xiolthxgnzhajyuruxye.supabase.co";
+  const SUPABASE_KEY  = "sb_publishable_VuIppQ090Naezd7Bty7zSg_jN2dtKa9";
+
+  // Cuenta única de dirección. Debe existir en Authentication → Users
+  // con exactamente este correo. En la web solo se pide la contraseña.
+  const CUENTA_DIRECCION = "direma@madrealberta.com";
+</script>
+
+<style>
+  :root{
+    --tinta:#16304a; --papel:#fbfaf8; --blanco:#fff;
+    --linea:#d9dfe6; --linea-fuerte:#b9c4cf;
+    --guardia:#1c6b58; --guardia-suave:#e4f0ec;
+    --alerta:#a8322a; --alerta-suave:#fbe9e7;
+    --marca:#f0c94a; --gris:#5d6b7a; --radio:3px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--papel);color:var(--tinta);font-family:"Segoe UI",Inter,system-ui,-apple-system,Arial,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px 80px}
+
+  header.top{border-bottom:2px solid var(--tinta);padding:26px 0 14px;display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px;justify-content:space-between}
+  header.top h1{font-size:30px;line-height:1.1;margin:0;font-weight:650;letter-spacing:-.4px}
+  header.top h1 span{display:block;font-size:14px;font-weight:400;color:var(--gris);letter-spacing:0;margin-top:6px}
+  .barra-admin{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+  .sello{font-size:12px;color:var(--guardia);border:1px solid var(--guardia);padding:2px 9px;border-radius:99px;white-space:nowrap}
+
+  nav.tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--linea);margin-bottom:28px}
+  nav.tabs button{font:inherit;font-size:14.5px;background:none;border:none;cursor:pointer;color:var(--gris);padding:12px 16px;border-bottom:3px solid transparent;margin-bottom:-1px}
+  nav.tabs button:hover{color:var(--tinta)}
+  nav.tabs button[aria-selected="true"]{color:var(--tinta);font-weight:600;border-bottom-color:var(--marca)}
+  .solo-admin[hidden]{display:none !important}
+
+  section.vista{display:none}
+  section.vista.activa{display:block}
+  h2{font-size:19px;margin:0 0 4px;font-weight:640}
+  h3{font-size:15px;margin:26px 0 8px;font-weight:640}
+  p.ayuda{color:var(--gris);font-size:13.5px;margin:0 0 18px;max-width:66ch}
+
+  .fecha-barra{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:14px 16px;background:var(--blanco);border:1px solid var(--linea);margin-bottom:22px}
+  .fecha-grande{font-size:20px;font-weight:640;text-transform:capitalize}
+  .fecha-barra .der{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .resumen{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:18px;font-size:13.5px;color:var(--gris)}
+  .resumen b{font-size:22px;font-weight:640;color:var(--tinta);display:block;font-variant-numeric:tabular-nums;line-height:1.2}
+  .resumen .malo b{color:var(--alerta)}
+
+  table.parte{width:100%;border-collapse:collapse;background:var(--blanco);font-size:14px}
+  table.parte th{text-align:left;font-weight:600;font-size:12.5px;color:var(--gris);border-bottom:1px solid var(--tinta);padding:9px 10px;white-space:nowrap}
+  table.parte td{border-bottom:1px solid var(--linea);padding:10px;vertical-align:top}
+  table.parte tr.franja-libre td{background:var(--alerta-suave)}
+  table.parte .hora{font-weight:640;white-space:nowrap;font-variant-numeric:tabular-nums}
+  table.parte .hora small{display:block;font-weight:400;color:var(--gris);font-size:11.5px}
+  .cubre{color:var(--guardia);font-weight:600}
+  .sin-cubrir{color:var(--alerta);font-weight:700}
+  .sin-cubrir::before{content:"* "}
+  select.reasignar{font:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--linea-fuerte);background:var(--blanco);width:100%;max-width:200px;margin-top:4px}
+  .nota-asterisco{font-size:13px;color:var(--alerta);margin-top:12px}
+  .vacio{border:1px dashed var(--linea-fuerte);padding:34px 20px;text-align:center;color:var(--gris);background:var(--blanco);font-size:14px}
+
+  button.b,a.b{font:inherit;font-size:14px;cursor:pointer;border:1px solid var(--tinta);background:var(--tinta);color:#fff;padding:8px 15px;border-radius:var(--radio);text-decoration:none;display:inline-block}
+  button.b:hover{background:#0f2439}
+  button.b.sec{background:transparent;color:var(--tinta)}
+  button.b.sec:hover{background:#eef1f4}
+  button.b.mini{padding:4px 10px;font-size:13px}
+  button.b.peligro{border-color:var(--alerta);color:var(--alerta);background:transparent}
+  button.b.peligro:hover{background:var(--alerta-suave)}
+  button:disabled{opacity:.5;cursor:default}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--marca);outline-offset:1px}
+
+  .campo{margin-bottom:18px}
+  .campo label.tit{display:block;font-size:13px;font-weight:640;margin-bottom:6px}
+  .campo label.tit .req{color:var(--alerta)}
+  input[type=text],input[type=email],input[type=password],input[type=date],select,textarea{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--linea-fuerte);background:var(--blanco);color:var(--tinta);width:100%;max-width:420px;border-radius:var(--radio)}
+  .opciones{display:flex;flex-direction:column;gap:6px}
+  .opciones label{font-size:14px;display:flex;gap:8px;align-items:center;cursor:pointer}
+  .fila{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+  .fila .campo{margin-bottom:0}
+  .fila input[type=date]{width:180px}
+
+  .dia-bloque{border:1px solid var(--linea);background:var(--blanco);margin-bottom:14px}
+  .dia-bloque h4{margin:0;padding:10px 12px;font-size:14px;font-weight:640;border-bottom:1px solid var(--linea);background:#f2f5f7;text-transform:capitalize}
+  table.horas{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.horas th{font-size:12px;color:var(--gris);text-align:left;font-weight:600;padding:7px 10px;border-bottom:1px solid var(--linea)}
+  table.horas td{padding:6px 10px;border-bottom:1px solid #eef1f4}
+  table.horas input[type=text]{max-width:100%;padding:5px 7px;font-size:13.5px}
+  table.horas tr.off td{opacity:.42}
+  table.horas .cel-hora{white-space:nowrap;font-weight:600}
+  .rango-dia{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:10px 12px;border-bottom:1px solid var(--linea);font-size:13.5px;background:#fcfdfe;
+  }
+  .rango-dia select{width:auto;min-width:130px;padding:5px 8px;font-size:13.5px}
+  table.semana{border-collapse:collapse;font-size:13px;background:var(--blanco);min-width:760px}
+  table.semana th{font-size:12px;color:var(--gris);font-weight:600;padding:7px 8px;border-bottom:1px solid var(--tinta);text-transform:capitalize}
+  table.semana td{border:1px solid var(--linea);padding:4px;vertical-align:top}
+  table.semana td.hora-lbl{
+    border:none;border-right:1px solid var(--linea-fuerte);font-weight:600;white-space:nowrap;
+    padding-right:10px;position:sticky;left:0;background:var(--blanco);z-index:2;
+  }
+  table.semana td.hora-lbl small{display:block;font-weight:400;color:var(--gris)}
+  table.semana input{width:100%;max-width:none;padding:4px 6px;font-size:12.5px;border:1px solid transparent;background:#f7f9fb}
+  table.semana input:focus{border-color:var(--linea-fuerte);background:var(--blanco)}
+  table.semana input.s-aula{margin-top:3px}
+
+  .aviso{border-left:3px solid var(--marca);background:#fdf7e3;padding:10px 14px;font-size:13.5px;margin:18px 0}
+  .error{color:var(--alerta);font-size:13.5px;margin-top:10px;min-height:1px}
+  .gracias{border:1px solid var(--guardia);background:var(--guardia-suave);padding:26px;text-align:center}
+  .gracias h2{color:var(--guardia);margin-bottom:8px}
+  .panel{border:1px solid var(--linea);background:var(--blanco);padding:16px;margin-bottom:16px}
+  .mapa-col{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin:14px 0}
+  .mapa-col label{display:block;font-size:12.5px;font-weight:600;margin-bottom:4px}
+  .mapa-col select{font-size:13px;padding:6px 8px;width:100%}
+
+  table.prof{width:100%;border-collapse:collapse;background:var(--blanco);font-size:14px}
+  table.prof th{font-size:12px;color:var(--gris);font-weight:600;padding:8px 6px;border-bottom:1px solid var(--tinta);text-align:center}
+  table.prof th.nom{text-align:left;min-width:150px}
+  table.prof td{border-bottom:1px solid var(--linea);padding:4px 6px;text-align:center}
+  table.prof td.nom{text-align:left;font-weight:500}
+  /* la columna de nombres queda fija al arrastrar el cuadro a la derecha */
+  table.prof th.nom,table.prof td.nom{
+    position:sticky;left:0;z-index:2;background:var(--blanco);
+    box-shadow:1px 0 0 var(--linea-fuerte);white-space:nowrap;
+  }
+  table.prof thead th.nom{z-index:3;background:var(--blanco)}
+  table.prof td .sub{font-size:11.5px;color:var(--gris);font-weight:400}
+  .celda-guardia{display:block;width:100%;height:30px;border:1px solid var(--linea);background:var(--blanco);cursor:pointer;border-radius:2px}
+  .celda-guardia[aria-pressed="true"]{background:var(--guardia);border-color:var(--guardia)}
+  .celda-guardia[aria-pressed="true"]::after{content:"G";color:#fff;font-size:12px;font-weight:700}
+  .scroll-x{overflow-x:auto;border:1px solid var(--linea);background:var(--blanco)}
+  .dia-sep{border-left:2px solid var(--linea-fuerte)}
+
+  .lista-aus{border-top:1px solid var(--tinta)}
+  .item-aus{border-bottom:1px solid var(--linea);padding:14px 2px;display:flex;gap:16px;align-items:flex-start;background:var(--blanco)}
+  .item-aus .txt{flex:1}
+  .item-aus .meta{font-size:13px;color:var(--gris);margin-top:3px}
+  .chip{display:inline-block;font-size:11.5px;padding:2px 8px;border:1px solid var(--linea-fuerte);border-radius:99px;color:var(--gris);margin-right:6px}
+  .chip.rojo{color:var(--alerta);border-color:var(--alerta)}
+
+  .pie{margin-top:40px;padding-top:16px;border-top:1px solid var(--linea);font-size:12.5px;color:var(--gris);display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  #estado{position:fixed;right:16px;bottom:16px;background:var(--tinta);color:#fff;padding:9px 15px;font-size:13.5px;border-radius:var(--radio);opacity:0;transition:opacity .25s;pointer-events:none;max-width:340px;z-index:30}
+  #estado.ver{opacity:1}
+  .capa{position:fixed;inset:0;background:rgba(22,48,74,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20}
+  .capa[hidden]{display:none}
+  .caja{background:var(--blanco);border:1px solid var(--tinta);max-width:400px;width:100%;padding:24px}
+  .caja h3{margin:0 0 6px;font-size:18px}
+  .caja p{font-size:13.5px;color:var(--gris);margin:0 0 16px}
+  .caja input{margin-bottom:10px;max-width:100%}
+  .caja .botones{display:flex;gap:8px;margin-top:6px}
+  @media (prefers-reduced-motion:reduce){#estado{transition:none}}
+  @media (max-width:640px){.wrap{padding:0 14px 60px}header.top h1{font-size:24px}table.parte{font-size:13px}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Guardias y ausencias
+      <span>Parte diario de sustituciones · ESO y BTO</span>
+    </h1>
+    <div class="barra-admin">
+      <span class="sello solo-admin" id="selloUsuario" hidden></span>
+      <div id="cajaAcceso" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+        <input type="password" id="clave" placeholder="Contraseña de dirección" aria-label="Contraseña de dirección" style="width:210px" autocomplete="current-password">
+        <button class="b sec mini" id="btnEntrar">Entrar</button>
+        <div id="errAcceso" style="flex-basis:100%;text-align:right;color:var(--alerta);font-size:12px"></div>
+      </div>
+      <button class="b sec mini" id="btnSalir" hidden>Salir</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-vista="nueva" aria-selected="true">Comunicar ausencia</button>
+    <button role="tab" data-vista="parte" class="solo-admin" hidden aria-selected="false">Parte del día</button>
+    <button role="tab" data-vista="ausencias" class="solo-admin" hidden aria-selected="false">Ausencias registradas</button>
+    <button role="tab" data-vista="bajas" class="solo-admin" hidden aria-selected="false">Bajas largas</button>
+    <button role="tab" data-vista="reparto" class="solo-admin" hidden aria-selected="false">Guardias por profesor</button>
+    <button role="tab" data-vista="profesorado" class="solo-admin" hidden aria-selected="false">Profesorado y guardias</button>
+  </nav>
+
+  <section class="vista activa" id="v-nueva">
+    <div class="gracias" id="gracias" hidden>
+      <h2>Ausencia comunicada</h2>
+      <p id="graciasTexto"></p>
+      <button class="b sec" id="btnOtra">Comunicar otra ausencia</button>
+    </div>
+    <div id="formularioAus">
+      <h2>Comunicar una ausencia</h2>
+      <p class="ayuda">Rellena los campos de forma concisa. Indica las horas concretas que vas a faltar, el grupo y el aula, y deja detallado el trabajo que debe realizar el alumnado. Las solicitudes deben enviarse con al menos 3 días de antelación y comunicarse también a la Dirección de Etapa.</p>
+
+      <div class="campo">
+        <label class="tit" for="fProfesor">Profesor o profesora <span class="req">*</span></label>
+        <select id="fProfesor"></select>
+      </div>
+
+      <div class="campo">
+        <label class="tit">Motivo de la ausencia <span class="req">*</span></label>
+        <div class="opciones">
+          <label><input type="radio" name="motivo" value="Cursos de formación"> Cursos de formación</label>
+          <label><input type="radio" name="motivo" value="Salida cultural"> Salida cultural</label>
+          <label><input type="radio" name="motivo" value="Otros asuntos del Centro"> Otros asuntos del Centro</label>
+          <label><input type="radio" name="motivo" value="Asuntos personales"> Asuntos personales</label>
+        </div>
+      </div>
+
+      <div class="campo">
+        <label class="tit" for="fDesc">Descripción breve</label>
+        <input type="text" id="fDesc" placeholder="Ej.: Jornada de formación en Palma">
+      </div>
+
+      <div class="campo">
+        <label class="tit">Fecha o periodo de ausencia <span class="req">*</span></label>
+        <div class="opciones">
+          <label><input type="radio" name="tipo" value="dia" checked> Un día u horas de ausencia</label>
+          <label><input type="radio" name="tipo" value="periodo"> Un periodo de días</label>
+        </div>
+      </div>
+
+      <div class="fila" style="margin-bottom:18px">
+        <div class="campo">
+          <label class="tit" for="fIni">Fecha</label>
+          <input type="date" id="fIni">
+        </div>
+        <div class="campo" id="cajaFin" hidden>
+          <label class="tit" for="fFin">Hasta</label>
+          <input type="date" id="fFin">
+        </div>
+      </div>
+
+      <h3>Horas en las que no estarás en el centro</h3>
+      <p class="ayuda">Indica primero <b>desde qué hora hasta qué hora</b> estarás fuera y se activarán solas esas casillas. Después rellena el grupo, el aula y la tarea solo en las horas que tengas clase: esas son las que necesitan sustituto. Las que queden activadas pero en blanco se entienden como horas sin clase, y sirven para que no se te asigne una guardia mientras estás fuera.</p>
+      <div id="bloquesDias"></div>
+
+      <div class="aviso">Recuerda presentar el justificante de la ausencia en Dirección. No se aceptan informes médicos.</div>
+      <div class="error" id="errNueva"></div>
+      <button class="b" id="btnGuardarAus">Enviar</button>
+    </div>
+  </section>
+
+  <section class="vista" id="v-parte">
+    <div class="fecha-barra">
+      <div>
+        <div class="fecha-grande" id="fechaGrande">—</div>
+        <div style="font-size:13px;color:var(--gris)" id="fechaSub"></div>
+      </div>
+      <div class="der">
+        <input type="date" id="fechaParte" style="width:170px">
+        <button class="b sec mini" id="btnHoy">Hoy</button>
+        <button class="b sec mini" id="btnRecargar">Actualizar</button>
+        <button class="b" id="btnPDF">Descargar PDF</button>
+      </div>
+    </div>
+    <div class="campo" style="margin-bottom:18px">
+      <label class="tit" for="avisoDia">Aviso del día (opcional, sale resaltado arriba del PDF)</label>
+      <input type="text" id="avisoDia" placeholder="Ej.: Salida alumnos intercambio 3º ESO" style="max-width:620px">
+    </div>
+    <div class="resumen" id="resumenParte"></div>
+    <div id="tablaParte"></div>
+  </section>
+
+  <section class="vista" id="v-ausencias">
+    <h2>Ausencias registradas</h2>
+    <p class="ayuda">Todo lo que ha llegado. Si se anula una ausencia, bórrala y las guardias se recalculan solas.</p>
+    <div id="listaAusencias"></div>
+  </section>
+
+  <section class="vista" id="v-bajas">
+    <h2>Bajas y ausencias de varios días</h2>
+    <p class="ayuda">Para cuando alguien no va a venir durante días o semanas. Rellenas su horario semanal una sola vez y el programa genera las sustituciones de todos los días que dure la baja. Solo dirección puede registrarlas.</p>
+
+    <div class="panel">
+      <div class="campo">
+        <label class="tit" for="bProfesor">Profesor o profesora <span class="req">*</span></label>
+        <select id="bProfesor"></select>
+      </div>
+
+      <div class="fila" style="margin-bottom:18px">
+        <div class="campo">
+          <label class="tit" for="bIni">Primer día que no acude <span class="req">*</span></label>
+          <input type="date" id="bIni">
+        </div>
+        <div class="campo">
+          <label class="tit" for="bFin">Último día previsto</label>
+          <input type="date" id="bFin">
+        </div>
+        <div class="campo">
+          <label class="tit" for="bSemanas">o duración en semanas</label>
+          <input type="number" id="bSemanas" min="1" max="20" placeholder="Ej.: 3" style="width:120px">
+        </div>
+      </div>
+
+      <div class="campo">
+        <label class="tit" for="bObs">Observaciones para el profesorado de guardia</label>
+        <input type="text" id="bObs" placeholder="Ej.: Trabajo colgado en el classroom de cada grupo" style="max-width:620px">
+      </div>
+
+      <h3 style="margin-top:8px">Horario semanal de quien está de baja</h3>
+      <p class="ayuda">Marca solo las horas en las que tiene clase, con el grupo y el aula. Lo que dejes vacío se entiende como hora sin clase. Este horario se repite cada semana mientras dure la baja.</p>
+      <div class="scroll-x" id="bHorario"></div>
+
+      <div class="error" id="errBaja"></div>
+      <button class="b" id="btnGuardarBaja" style="margin-top:16px">Registrar baja y generar sustituciones</button>
+    </div>
+
+    <h3>Bajas registradas</h3>
+    <div id="listaBajas"></div>
+  </section>
+
+  <section class="vista" id="v-reparto">
+    <h2>Guardias por profesor</h2>
+    <p class="ayuda">Recuento de las guardias que ha cubierto cada persona, contando todas las ausencias registradas. Cuando dos profesores tienen guardia a la misma hora, el reparto elige siempre al que menos lleva.</p>
+    <div class="fila" style="margin-bottom:16px">
+      <div class="campo">
+        <label class="tit" for="repDesde">Contar desde</label>
+        <input type="date" id="repDesde" style="width:180px">
+      </div>
+      <button class="b sec mini" id="btnRepTodo">Todo el curso</button>
+    </div>
+    <div id="tablaReparto"></div>
+  </section>
+
+  <section class="vista" id="v-profesorado">
+    <h2>Profesorado y horas de guardia</h2>
+    <p class="ayuda">Añade a cada profesor y marca en el cuadro las horas en las que tiene guardia. A partir de ahí, cada ausencia se reparte sola.</p>
+
+    <div class="fila" style="margin-bottom:18px">
+      <div class="campo">
+        <label class="tit" for="nuevoProf">Añadir profesor o profesora</label>
+        <input type="text" id="nuevoProf" placeholder="Apellidos, Nombre" style="width:300px">
+      </div>
+      <button class="b" id="btnAddProf">Añadir</button>
+    </div>
+
+    <div class="scroll-x" id="tablaProf"></div>
+
+    <h3>Horario del centro</h3>
+    <p class="ayuda">Cambia las etiquetas si tu horario es distinto.</p>
+    <div id="editorHoras"></div>
+
+    <h3>Grupos habituales</h3>
+    <p class="ayuda">Aparecerán como sugerencia al rellenar el formulario. Sepáralos con comas.</p>
+    <input type="text" id="editorCursos" style="max-width:620px">
+
+    <div class="pie">
+      <button class="b sec mini" id="btnExport">Descargar copia de seguridad</button>
+      <span>Los datos viven en Supabase. La copia es un JSON por si acaso.</span>
+    </div>
+  </section>
+</div>
+
+<div id="estado" role="status" aria-live="polite"></div>
+<datalist id="listaCursos"></datalist>
+
+<script>
+"use strict";
+
+const DIAS = ["lunes","martes","miércoles","jueves","viernes"];
+let sb = null, esAdmin = false;
+let D = { centro:"", horas:[], cursos:[], profesores:[], ausencias:[], manuales:{} };
+let asignaciones = {};
+
+/* ============================================================
+   UTILIDADES
+   ============================================================ */
+function esc(t){ return String(t==null?"":t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function aviso(t){
+  const e = document.getElementById("estado");
+  e.textContent = t; e.classList.add("ver");
+  clearTimeout(aviso._t); aviso._t = setTimeout(()=>e.classList.remove("ver"), 3200);
+}
+function fallo(e, donde){
+  console.error(donde, e);
+  aviso("Error al " + donde + (e && e.message ? ": " + e.message : ""));
+}
+function hoyISO(){ const d = new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function diaSemana(iso){ const [a,m,d] = iso.split("-").map(Number); const w = new Date(a,m-1,d).getDay(); return (w===0||w===6) ? -1 : w-1; }
+function fechaLarga(iso){ const [a,m,d] = iso.split("-").map(Number); return new Date(a,m-1,d).toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"}); }
+function fechaCorta(iso){ const [a,m,d] = iso.split("-").map(Number); return String(d).padStart(2,"0")+"/"+String(m).padStart(2,"0")+"/"+a; }
+function rangoLaborable(ini, fin){
+  const out = []; if(!ini) return out;
+  if(!fin || fin < ini) fin = ini;
+  const [a,m,d] = ini.split("-").map(Number); let cur = new Date(a,m-1,d);
+  const [a2,m2,d2] = fin.split("-").map(Number); const tope = new Date(a2,m2-1,d2);
+  let n = 0;
+  while(cur <= tope && n < 200){
+    const iso = cur.getFullYear()+"-"+String(cur.getMonth()+1).padStart(2,"0")+"-"+String(cur.getDate()).padStart(2,"0");
+    if(diaSemana(iso) >= 0) out.push(iso);
+    cur.setDate(cur.getDate()+1); n++;
+  }
+  return out;
+}
+function nombreProf(id){ const p = D.profesores.find(p=>p.id===id); return p ? p.nombre : "—"; }
+function nombreHora(h){ const x = D.horas.find(x=>x.id===h); return x ? x.nombre : h; }
+function rangoHora(h){ const x = D.horas.find(x=>x.id===h); return x && x.rango ? x.rango : ""; }
+
+/* ============================================================
+   BASE DE DATOS
+   ============================================================ */
+function conectar(){
+  if(!window.supabase || SUPABASE_URL.startsWith("PEGA")){
+    document.body.insertAdjacentHTML("afterbegin",
+      '<div style="background:#fbe9e7;color:#a8322a;padding:14px 20px;font-size:14px">' +
+      'Falta configurar Supabase: edita las dos constantes del principio del archivo con la URL y la clave pública de tu proyecto.</div>');
+    return false;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  return true;
+}
+async function cargarPublico(){
+  const [aj, pr] = await Promise.all([
+    sb.from("ajustes").select("*").eq("id",1).single(),
+    sb.from("profesores").select("*").order("nombre")
+  ]);
+  if(aj.data){ D.centro = aj.data.centro || ""; D.horas = aj.data.horas || []; D.cursos = aj.data.cursos || []; }
+  if(pr.data) D.profesores = pr.data.map(p=>({
+    id:p.id, nombre:p.nombre, guardias:p.guardias || [], previas: p.guardias_previas || 0
+  }));
+  if(aj.error) fallo(aj.error, "cargar los ajustes");
+  if(pr.error) fallo(pr.error, "cargar el profesorado");
+}
+async function cargarPrivado(){
+  if(!esAdmin){ D.ausencias = []; D.manuales = {}; return; }
+  const [au, ma] = await Promise.all([
+    sb.from("ausencias").select("*").order("creado_en",{ascending:false}),
+    sb.from("manuales").select("*")
+  ]);
+  D.ausencias = (au.data || []).map(a=>({
+    id:a.id, profesorId:a.profesor_id, motivo:a.motivo, descripcion:a.descripcion,
+    tipo:a.tipo || "puntual", patron:a.patron || null,
+    franjas:a.franjas || [], creado:a.creado_en
+  }));
+  D.manuales = {};
+  (ma.data || []).forEach(m=>{ D.manuales[m.clave] = m.profesor_id || ""; });
+  if(au.error) fallo(au.error, "cargar las ausencias");
+  recalcular();
+}
+async function guardarAjustes(){
+  const { error } = await sb.from("ajustes").update({centro:D.centro, horas:D.horas, cursos:D.cursos}).eq("id",1);
+  if(error) fallo(error, "guardar los ajustes");
+}
+async function guardarGuardias(p){
+  const { error } = await sb.from("profesores").update({guardias:p.guardias}).eq("id", p.id);
+  if(error) fallo(error, "guardar las guardias");
+}
+async function guardarPrevias(p){
+  const { error } = await sb.from("profesores").update({guardias_previas:p.previas}).eq("id", p.id);
+  if(error) fallo(error, "guardar el ajuste inicial");
+}
+async function fijarManual(clave, profId){
+  const { error } = await sb.from("manuales")
+    .upsert({clave:clave, profesor_id: profId || null, actualizado_en:new Date().toISOString()}, {onConflict:"clave"});
+  if(error) fallo(error, "reasignar la guardia");
+}
+
+/* ============================================================
+   MOTOR DE ASIGNACIÓN
+   ============================================================ */
+function todasLasFranjas(){
+  const f = [];
+  D.ausencias.forEach(a=>a.franjas.forEach((fr,i)=>f.push({
+    clave:a.id+"|"+i, ausencia:a, franja:fr, fecha:fr.fecha, horaId:fr.horaId,
+    // sin grupo, aula ni tarea = hora sin clase: no hay nada que cubrir,
+    // pero la persona sigue estando fuera y no puede hacer guardias
+    cubre: !!((fr.curso||"").trim() || (fr.aula||"").trim() || (fr.tarea||"").trim())
+  })));
+  f.sort((x,y)=>{
+    if(x.fecha !== y.fecha) return x.fecha < y.fecha ? -1 : 1;
+    const ix = D.horas.findIndex(h=>h.id===x.horaId), iy = D.horas.findIndex(h=>h.id===y.horaId);
+    if(ix !== iy) return ix - iy;
+    return x.clave < y.clave ? -1 : 1;
+  });
+  return f;
+}
+function recalcular(){
+  asignaciones = {};
+  const franjas = todasLasFranjas();
+  const ocupado = {}, ausente = {}, carga = {};
+  // se parte de las guardias ya cubiertas antes de usar el programa,
+  // para que el reparto sea justo aunque el histórico no esté completo
+  D.profesores.forEach(p=>carga[p.id] = p.previas || 0);
+  // toda hora marcada, tenga clase o no, deja a esa persona fuera de juego
+  const deBaja = {};   // fecha -> Set de quienes están de baja ese día
+  franjas.forEach(f=>{
+    const k = f.fecha+"|"+f.horaId;
+    (ausente[k] = ausente[k] || new Set()).add(f.ausencia.profesorId);
+    if(f.ausencia.tipo === "baja")
+      (deBaja[f.fecha] = deBaja[f.fecha] || new Set()).add(f.ausencia.profesorId);
+  });
+  franjas.forEach(f=>{
+    if(!f.cubre) return;
+    const m = D.manuales[f.clave];
+    if(m === undefined) return;
+    const k = f.fecha+"|"+f.horaId;
+    ocupado[k] = ocupado[k] || new Set();
+    if(m && D.profesores.some(p=>p.id===m)){
+      asignaciones[f.clave] = m; ocupado[k].add(m); carga[m] = (carga[m]||0)+1;
+    }else{
+      asignaciones[f.clave] = null;
+    }
+  });
+  franjas.forEach(f=>{
+    if(!f.cubre || (f.clave in asignaciones)) return;
+    const dia = diaSemana(f.fecha), k = f.fecha+"|"+f.horaId;
+    ocupado[k] = ocupado[k] || new Set();
+    const baja = deBaja[f.fecha];
+    const libres = D.profesores.filter(p=>
+      p.guardias.includes(dia+"-"+f.horaId) && !ocupado[k].has(p.id) &&
+      !(ausente[k] && ausente[k].has(p.id)) && !(baja && baja.has(p.id)));
+    if(!libres.length){ asignaciones[f.clave] = null; return; }
+    libres.sort((a,b)=>(carga[a.id]-carga[b.id]) || a.nombre.localeCompare(b.nombre,"es"));
+    asignaciones[f.clave] = libres[0].id;
+    ocupado[k].add(libres[0].id); carga[libres[0].id]++;
+  });
+}
+// Para el parte y el PDF: solo las horas que necesitan sustituto.
+function franjasDelDia(fecha){ return todasLasFranjas().filter(f=>f.fecha===fecha && f.cubre); }
+function candidatos(fecha, horaId, clave){
+  const dia = diaSemana(fecha), usados = new Set(), faltan = new Set();
+  // aquí sí miramos todas las franjas, también las horas sin clase
+  todasLasFranjas().filter(f=>f.fecha===fecha).forEach(f=>{
+    if(f.ausencia.tipo === "baja") faltan.add(f.ausencia.profesorId);   // de baja: no cubre a ninguna hora
+    if(f.horaId !== horaId) return;
+    faltan.add(f.ausencia.profesorId);
+    if(f.clave !== clave && asignaciones[f.clave]) usados.add(asignaciones[f.clave]);
+  });
+  return D.profesores.filter(p=>p.guardias.includes(dia+"-"+horaId) && !usados.has(p.id) && !faltan.has(p.id));
+}
+
+/* ============================================================
+   PARTE DEL DÍA
+   ============================================================ */
+function pintarParte(){
+  if(!esAdmin) return;
+  const fecha = document.getElementById("fechaParte").value || hoyISO();
+  document.getElementById("fechaGrande").textContent = fechaLarga(fecha);
+  document.getElementById("fechaSub").textContent = diaSemana(fecha) < 0 ? "Fin de semana" : "Parte de guardias";
+
+  const franjas = franjasDelDia(fecha);
+  const sinCubrir = franjas.filter(f=>!asignaciones[f.clave]).length;
+  const profes = new Set(franjas.map(f=>f.ausencia.profesorId));
+  document.getElementById("resumenParte").innerHTML =
+    '<div><b>'+profes.size+'</b>profesorado ausente</div>' +
+    '<div><b>'+franjas.length+'</b>horas por cubrir</div>' +
+    '<div class="'+(sinCubrir?'malo':'')+'"><b>'+sinCubrir+'</b>horas sin guardia</div>';
+
+  const cont = document.getElementById("tablaParte");
+  if(!franjas.length){ cont.innerHTML = '<div class="vacio">No hay ausencias comunicadas para este día.</div>'; return; }
+
+  let html = '<table class="parte"><thead><tr><th>Hora</th><th>Falta</th><th>Grupo</th><th>Aula</th><th>Tarea para el alumnado</th><th>Cubre la guardia</th></tr></thead><tbody>';
+  franjas.forEach(f=>{
+    const asig = asignaciones[f.clave];
+    const libres = candidatos(fecha, f.horaId, f.clave);
+    const opts = libres.map(p=>'<option value="'+p.id+'"'+(p.id===asig?' selected':'')+'>'+esc(p.nombre)+'</option>').join("");
+    const extra = (asig && !libres.some(p=>p.id===asig)) ? '<option value="'+asig+'" selected>'+esc(nombreProf(asig))+'</option>' : "";
+    html += '<tr class="'+(asig?"":"franja-libre")+'">' +
+      '<td class="hora">'+esc(nombreHora(f.horaId))+'<small>'+esc(rangoHora(f.horaId))+'</small></td>' +
+      '<td>'+esc(nombreProf(f.ausencia.profesorId))+'<br><span style="font-size:12px;color:var(--gris)">'+esc(f.ausencia.motivo||"")+'</span></td>' +
+      '<td>'+esc(f.franja.curso||"—")+'</td><td>'+esc(f.franja.aula||"—")+'</td><td>'+esc(f.franja.tarea||"—")+'</td>' +
+      '<td>'+(asig ? '<span class="cubre">'+esc(nombreProf(asig))+'</span>' : '<span class="sin-cubrir">Sin cubrir</span>') +
+      '<select class="reasignar" data-clave="'+f.clave+'"><option value="">— sin cubrir —</option>'+extra+opts+'</select></td></tr>';
+  });
+  html += '</tbody></table>';
+  if(sinCubrir) html += '<p class="nota-asterisco">Las horas marcadas con asterisco no tienen profesorado de guardia disponible. Requieren solución de Jefatura de Estudios.</p>';
+  cont.innerHTML = html;
+
+  cont.querySelectorAll("select.reasignar").forEach(s=>{
+    s.onchange = async ()=>{
+      D.manuales[s.dataset.clave] = s.value || "";
+      await fijarManual(s.dataset.clave, s.value);
+      recalcular(); pintarParte(); aviso("Guardia reasignada");
+    };
+  });
+}
+
+/* ============================================================
+   PDF
+   ============================================================ */
+function horaInicio(hid){
+  const r = rangoHora(hid);
+  const m = r.match(/(\d{1,2}:\d{2})/);
+  return m ? m[1].replace(/^0/,"") + "h" : nombreHora(hid);
+}
+function tituloDia(iso){
+  const [a,m,d] = iso.split("-").map(Number);
+  const f = new Date(a, m-1, d);
+  const dia = f.toLocaleDateString("es-ES",{weekday:"long"});
+  return dia.charAt(0).toUpperCase() + dia.slice(1) + " " + d;
+}
+
+function generarPDF(){
+  const fecha = document.getElementById("fechaParte").value || hoyISO();
+  const franjas = franjasDelDia(fecha);
+  if(!franjas.length){ aviso("No hay nada que exportar en este día"); return; }
+  if(!window.jspdf || !window.jspdf.jsPDF){ aviso("No se ha podido cargar el generador de PDF"); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:"mm", format:"a4"});
+  const M = 15, W = 180, FIN = 275;
+  let y = M;
+
+  // --- Título del día ---
+  doc.setDrawColor(0); doc.setLineWidth(.4);
+  doc.rect(M, y, W*0.62, 11);
+  doc.setFont("helvetica","bold"); doc.setFontSize(16);
+  doc.text(tituloDia(fecha), M+4, y+7.8);
+  doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(110);
+  doc.text(fechaLarga(fecha), M+W, y+7.8, {align:"right"});
+  doc.setTextColor(0);
+  y += 11;
+
+  // --- Aviso del día, resaltado ---
+  const nota = (document.getElementById("avisoDia").value || "").trim();
+  if(nota){
+    doc.setFillColor(255, 242, 0);
+    doc.rect(M, y, W*0.62, 8, "FD");
+    doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.text(nota.slice(0,70), M+4, y+5.6);
+    y += 8;
+  }
+  y += 8;
+
+  // --- Un bloque por profesor ausente ---
+  const porProf = {};
+  franjas.forEach(f=>{
+    (porProf[f.ausencia.profesorId] = porProf[f.ausencia.profesorId] || []).push(f);
+  });
+  const orden = Object.keys(porProf).sort((a,b)=>nombreProf(a).localeCompare(nombreProf(b),"es"));
+
+  let quedaAlguna = false;
+  orden.forEach(pid=>{
+    const filas = porProf[pid].slice().sort((a,b)=>
+      D.horas.findIndex(h=>h.id===a.horaId) - D.horas.findIndex(h=>h.id===b.horaId));
+
+    // salto de página si no cabe la cabecera y al menos una fila
+    if(y + 9 + 8 + filas.length*7 > FIN && y > M + 30){ doc.addPage(); y = M; }
+
+    doc.setDrawColor(0); doc.setLineWidth(.4);
+    doc.rect(M, y, W, 8);
+    doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.text(nombreProf(pid), M+3, y+5.6);
+    y += 8;
+
+    const sinCubrir = [];
+    const body = filas.map((f,i)=>{
+      const a = asignaciones[f.clave];
+      if(!a){ sinCubrir.push(i); quedaAlguna = true; }
+      return [horaInicio(f.horaId), f.franja.curso||"", f.franja.aula||"",
+              a ? nombreProf(a) : "* Sin cubrir", f.franja.tarea||""];
+    });
+
+    doc.autoTable({
+      startY: y,
+      head: [["Hora","Grupo","Aula","Profesor sustituto","Observaciones/Trabajo"]],
+      body: body,
+      theme: "grid",
+      styles:{font:"helvetica", fontSize:9, cellPadding:1.8, textColor:[0,0,0],
+              lineColor:[0,0,0], lineWidth:.25, valign:"middle"},
+      headStyles:{fillColor:[255,255,255], textColor:[0,0,0], fontStyle:"bold", halign:"center"},
+      columnStyles:{0:{cellWidth:22},1:{cellWidth:30},2:{cellWidth:24},3:{cellWidth:44},4:{cellWidth:60}},
+      margin:{left:M, right:M},
+      didParseCell:function(d){
+        if(d.section==="body" && d.column.index===3 && sinCubrir.includes(d.row.index)){
+          d.cell.styles.fontStyle = "bold";
+        }
+      }
+    });
+    y = doc.lastAutoTable.finalY + 9;
+  });
+
+  if(quedaAlguna){
+    if(y > FIN - 10){ doc.addPage(); y = M; }
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.setTextColor(120);
+    doc.text("* Sin profesorado de guardia disponible a esa hora. Pendiente de resolver por Jefatura de Estudios.", M, y);
+    doc.setTextColor(0);
+  }
+
+  doc.save("parte-guardias-" + fecha + ".pdf");
+  aviso("PDF descargado");
+}
+function descargarFichero(txt, nombre, tipo){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([txt],{type:tipo}));
+  a.download = nombre; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+
+/* ============================================================
+   FORMULARIO DE AUSENCIA
+   ============================================================ */
+function pintarSelectProfesor(){
+  const s = document.getElementById("fProfesor"), actual = s.value;
+  s.innerHTML = '<option value="">Selecciona…</option>' +
+    D.profesores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
+      .map(p=>'<option value="'+p.id+'">'+esc(p.nombre)+'</option>').join("");
+  if(actual) s.value = actual;
+  document.getElementById("listaCursos").innerHTML = D.cursos.map(c=>'<option value="'+esc(c)+'">').join("");
+}
+function pintarBloquesDias(){
+  const tipo = document.querySelector('input[name=tipo]:checked').value;
+  const ini = document.getElementById("fIni").value, fin = document.getElementById("fFin").value;
+  const cont = document.getElementById("bloquesDias");
+  const fechas = tipo === "dia" ? (ini ? [ini] : []) : rangoLaborable(ini, fin);
+  if(!fechas.length){ cont.innerHTML = '<div class="vacio">Elige primero la fecha de la ausencia.</div>'; return; }
+
+  const previo = leerFranjasFormulario();
+  const opciones = (sel)=>D.horas.map(h=>
+    '<option value="'+h.id+'"'+(h.id===sel?' selected':'')+'>'+esc(h.nombre)+' · '+esc(h.rango||"")+'</option>').join("");
+
+  cont.innerHTML = fechas.map(fecha=>{
+    const marcadas = previo.filter(x=>x.fecha===fecha)
+      .map(x=>D.horas.findIndex(h=>h.id===x.horaId)).filter(i=>i>=0).sort((a,b)=>a-b);
+    const selIni = marcadas.length ? D.horas[marcadas[0]].id : "";
+    const selFin = marcadas.length ? D.horas[marcadas[marcadas.length-1]].id : "";
+
+    const filas = D.horas.map(h=>{
+      const p = previo.find(x=>x.fecha===fecha && x.horaId===h.id), on = !!p;
+      return '<tr class="'+(on?"":"off")+'" data-fecha="'+fecha+'" data-hora="'+h.id+'">' +
+        '<td><input type="checkbox" class="chk-hora" '+(on?"checked":"")+' aria-label="No estaré a la hora '+esc(h.nombre)+'"></td>' +
+        '<td class="cel-hora">'+esc(h.nombre)+' <span style="font-weight:400;color:var(--gris)">'+esc(h.rango||"")+'</span></td>' +
+        '<td><input type="text" class="in-curso" list="listaCursos" placeholder="Grupo" value="'+esc(p?p.curso:"")+'" '+(on?"":"disabled")+'></td>' +
+        '<td><input type="text" class="in-aula" placeholder="Aula" value="'+esc(p?p.aula:"")+'" '+(on?"":"disabled")+'></td>' +
+        '<td><input type="text" class="in-tarea" placeholder="Trabajo que debe realizar el alumnado (vacío si no tienes clase)" value="'+esc(p?p.tarea:"")+'" '+(on?"":"disabled")+'></td></tr>';
+    }).join("");
+
+    return '<div class="dia-bloque"><h4>'+fechaLarga(fecha)+'</h4>' +
+      '<div class="rango-dia">No estaré desde ' +
+        '<select class="r-ini"><option value="">—</option>'+opciones(selIni)+'</select> hasta ' +
+        '<select class="r-fin"><option value="">—</option>'+opciones(selFin)+'</select>' +
+        '<button type="button" class="b sec mini r-todo">Toda la jornada</button>' +
+        '<button type="button" class="b sec mini r-nada">Vaciar</button>' +
+      '</div>' +
+      '<table class="horas">' +
+      '<colgroup><col style="width:38px"><col style="width:130px"><col style="width:15%"><col style="width:13%"><col style="width:44%"></colgroup>' +
+      '<thead><tr><th></th><th>Hora</th><th>Grupo</th><th>Aula</th><th>Tarea</th></tr></thead><tbody>'+filas+'</tbody></table></div>';
+  }).join("");
+
+  // marcar o desmarcar una fila
+  const activarFila = (tr, on)=>{
+    tr.querySelector(".chk-hora").checked = on;
+    tr.classList.toggle("off", !on);
+    tr.querySelectorAll("input[type=text]").forEach(i=>i.disabled = !on);
+  };
+  // el rango activa de golpe las horas que van de una a otra
+  const aplicarRango = (bloque)=>{
+    const si = bloque.querySelector(".r-ini"), sf = bloque.querySelector(".r-fin");
+    if(!si.value || !sf.value) return;
+    let a = D.horas.findIndex(h=>h.id===si.value), b = D.horas.findIndex(h=>h.id===sf.value);
+    if(a > b){ const t = si.value; si.value = sf.value; sf.value = t; const u = a; a = b; b = u; }
+    bloque.querySelectorAll("tr[data-hora]").forEach(tr=>{
+      const i = D.horas.findIndex(h=>h.id===tr.dataset.hora);
+      activarFila(tr, i >= a && i <= b);
+    });
+    const primera = bloque.querySelector("tr:not(.off) .in-curso");
+    if(primera) primera.focus();
+  };
+
+  cont.querySelectorAll(".dia-bloque").forEach(bloque=>{
+    bloque.querySelector(".r-ini").onchange = ()=>{
+      const sf = bloque.querySelector(".r-fin");
+      if(!sf.value) sf.value = bloque.querySelector(".r-ini").value;   // un rato de una sola hora
+      aplicarRango(bloque);
+    };
+    bloque.querySelector(".r-fin").onchange = ()=>aplicarRango(bloque);
+    bloque.querySelector(".r-todo").onclick = ()=>{
+      bloque.querySelector(".r-ini").value = D.horas[0].id;
+      bloque.querySelector(".r-fin").value = D.horas[D.horas.length-1].id;
+      aplicarRango(bloque);
+    };
+    bloque.querySelector(".r-nada").onclick = ()=>{
+      bloque.querySelector(".r-ini").value = "";
+      bloque.querySelector(".r-fin").value = "";
+      bloque.querySelectorAll("tr[data-hora]").forEach(tr=>activarFila(tr, false));
+    };
+  });
+
+  // ajuste manual suelto, por si el rango no encaja del todo
+  cont.querySelectorAll(".chk-hora").forEach(c=>{
+    c.onchange = ()=>{
+      const tr = c.closest("tr");
+      tr.classList.toggle("off", !c.checked);
+      tr.querySelectorAll("input[type=text]").forEach(i=>i.disabled = !c.checked);
+      if(c.checked) tr.querySelector(".in-curso").focus();
+    };
+  });
+}
+function leerFranjasFormulario(){
+  const out = [];
+  document.querySelectorAll("#bloquesDias tr[data-fecha]").forEach(tr=>{
+    if(!tr.querySelector(".chk-hora").checked) return;
+    out.push({fecha:tr.dataset.fecha, horaId:tr.dataset.hora,
+      curso:tr.querySelector(".in-curso").value.trim(),
+      aula:tr.querySelector(".in-aula").value.trim(),
+      tarea:tr.querySelector(".in-tarea").value.trim()});
+  });
+  return out;
+}
+async function enviarAusencia(){
+  const err = document.getElementById("errNueva");
+  const profesorId = document.getElementById("fProfesor").value;
+  const motivoEl = document.querySelector('input[name=motivo]:checked');
+  const franjas = leerFranjasFormulario();
+  if(!profesorId){ err.textContent = "Falta indicar quién se ausenta."; return; }
+  if(!motivoEl){ err.textContent = "Falta el motivo de la ausencia."; return; }
+  if(!franjas.length){ err.textContent = "Marca al menos una hora de ausencia."; return; }
+  err.textContent = "";
+
+  const btn = document.getElementById("btnGuardarAus");
+  btn.disabled = true; btn.textContent = "Enviando…";
+  const { error } = await sb.from("ausencias").insert({
+    profesor_id: profesorId, motivo: motivoEl.value,
+    descripcion: document.getElementById("fDesc").value.trim(),
+    franjas: franjas, origen: "web"
+  });
+  btn.disabled = false; btn.textContent = "Enviar";
+  if(error){ err.textContent = "No se ha podido enviar: " + error.message; return; }
+
+  document.getElementById("fProfesor").value = "";
+  motivoEl.checked = false;
+  document.getElementById("fDesc").value = "";
+  pintarBloquesDias();
+
+  if(esAdmin){
+    await cargarPrivado();
+    document.getElementById("fechaParte").value = franjas[0].fecha;
+    irA("parte"); pintarParte();
+    aviso("Ausencia registrada");
+  }else{
+    document.getElementById("graciasTexto").textContent =
+      "Se han registrado "+franjas.length+" hora(s) fuera del centro, "+
+      franjas.filter(f=>f.curso || f.aula || f.tarea).length+" de ellas con clase que cubrir. " +
+      "Jefatura de Estudios asignará el profesorado de guardia. Recuerda presentar el justificante.";
+    document.getElementById("formularioAus").hidden = true;
+    document.getElementById("gracias").hidden = false;
+    window.scrollTo({top:0, behavior:"instant"});
+  }
+}
+
+/* ============================================================
+   AUSENCIAS REGISTRADAS
+   ============================================================ */
+function pintarAusencias(){
+  const c = document.getElementById("listaAusencias");
+  if(!D.ausencias.length){ c.innerHTML = '<div class="vacio">Todavía no se ha comunicado ninguna ausencia.</div>'; return; }
+  c.innerHTML = '<div class="lista-aus">' + D.ausencias.map(a=>{
+    const fechas = [...new Set(a.franjas.map(f=>f.fecha))].sort();
+    const conClase = a.franjas.filter(f=>(f.curso||"").trim() || (f.aula||"").trim() || (f.tarea||"").trim());
+    const sin = a.franjas.filter((f,i)=>
+      ((f.curso||"").trim() || (f.aula||"").trim() || (f.tarea||"").trim()) && !asignaciones[a.id+"|"+i]).length;
+    const rango = fechas.length===1 ? fechaCorta(fechas[0]) : fechaCorta(fechas[0])+" – "+fechaCorta(fechas[fechas.length-1]);
+    return '<div class="item-aus"><div class="txt"><b>'+esc(nombreProf(a.profesorId))+'</b> · '+esc(rango) +
+      '<div class="meta">'+esc(a.motivo||"")+(a.descripcion?" — "+esc(a.descripcion):"")+'</div>' +
+      '<div style="margin-top:7px">' +
+      (a.tipo === "baja" ? '<span class="chip rojo">baja larga</span>' : '') +
+      '<span class="chip">'+a.franjas.length+' hora(s) fuera</span>' +
+      '<span class="chip">'+conClase.length+' con clase</span>' +
+      (sin ? '<span class="chip rojo">'+sin+' sin cubrir</span>' : '<span class="chip">todo cubierto</span>') +
+      fechas.map(f=>'<span class="chip">'+esc(fechaCorta(f))+'</span>').join("") + '</div></div>' +
+      '<button class="b sec mini" data-ver="'+fechas[0]+'">Ver parte</button>' +
+      '<button class="b peligro mini" data-borrar="'+a.id+'">Borrar</button></div>';
+  }).join("") + '</div>';
+
+  c.querySelectorAll("[data-borrar]").forEach(b=>{
+    b.onclick = async ()=>{
+      if(!confirm("¿Borrar esta ausencia? Las guardias se recalcularán.")) return;
+      const { error } = await sb.from("ausencias").delete().eq("id", b.dataset.borrar);
+      if(error){ fallo(error, "borrar la ausencia"); return; }
+      await cargarPrivado(); pintarAusencias(); pintarParte(); aviso("Ausencia borrada");
+    };
+  });
+  c.querySelectorAll("[data-ver]").forEach(b=>{
+    b.onclick = ()=>{ document.getElementById("fechaParte").value = b.dataset.ver; irA("parte"); pintarParte(); };
+  });
+}
+
+/* ============================================================
+   PROFESORADO
+   ============================================================ */
+function pintarProfesorado(){
+  const cont = document.getElementById("tablaProf");
+  if(!D.profesores.length){
+    cont.innerHTML = '<div class="vacio">Añade al profesorado para empezar. Después marca sus horas de guardia.</div>';
+  }else{
+    let html = '<table class="prof"><thead><tr><th class="nom">Profesorado</th>';
+    DIAS.forEach((d,i)=>{ html += '<th colspan="'+D.horas.length+'" class="'+(i?"dia-sep":"")+'" style="text-transform:capitalize">'+d+'</th>'; });
+    html += '<th></th></tr><tr><th class="nom"></th>';
+    DIAS.forEach((d,i)=>D.horas.forEach((h,j)=>{
+      html += '<th class="'+(i&&j===0?"dia-sep":"")+'" style="font-weight:500">'+esc(h.nombre)+'</th>';
+    }));
+    html += '<th></th></tr></thead><tbody>';
+    D.profesores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).forEach(p=>{
+      html += '<tr><td class="nom">'+esc(p.nombre)+'<span class="sub"> · '+p.guardias.length+' guardias</span></td>';
+      DIAS.forEach((d,i)=>D.horas.forEach((h,j)=>{
+        const k = i+"-"+h.id, on = p.guardias.includes(k);
+        html += '<td class="'+(i&&j===0?"dia-sep":"")+'"><button class="celda-guardia" aria-pressed="'+on+'" data-prof="'+p.id+'" data-slot="'+k+'" title="'+d+' '+esc(h.nombre)+'"></button></td>';
+      }));
+      html += '<td><button class="b peligro mini" data-quitar="'+p.id+'">Quitar</button></td></tr>';
+    });
+    cont.innerHTML = html + '</tbody></table>';
+
+    cont.querySelectorAll(".celda-guardia").forEach(b=>{
+      b.onclick = async ()=>{
+        const p = D.profesores.find(x=>x.id===b.dataset.prof), k = b.dataset.slot;
+        const i = p.guardias.indexOf(k);
+        if(i>=0) p.guardias.splice(i,1); else p.guardias.push(k);
+        b.setAttribute("aria-pressed", i<0);
+        const sub = b.closest("tr").querySelector(".sub");
+        if(sub) sub.textContent = " · "+p.guardias.length+" guardias";
+        await guardarGuardias(p);
+        recalcular(); pintarParte();
+      };
+    });
+    cont.querySelectorAll("[data-quitar]").forEach(b=>{
+      b.onclick = async ()=>{
+        const p = D.profesores.find(x=>x.id===b.dataset.quitar);
+        if(!confirm("¿Quitar a "+p.nombre+"? Se borrarán también sus ausencias.")) return;
+        const { error } = await sb.from("profesores").delete().eq("id", p.id);
+        if(error){ fallo(error, "quitar al profesor"); return; }
+        await cargarPublico(); await cargarPrivado();
+        pintarProfesorado(); pintarSelectProfesor(); pintarParte();
+      };
+    });
+  }
+  pintarEditorHoras();
+  document.getElementById("editorCursos").value = D.cursos.join(", ");
+}
+function pintarEditorHoras(){
+  const c = document.getElementById("editorHoras");
+  c.innerHTML = '<div class="scroll-x" style="padding:12px"><table class="horas" style="min-width:520px"><thead><tr>' +
+    '<th style="width:120px">Nombre</th><th style="width:200px">Horario</th><th></th></tr></thead><tbody>' +
+    D.horas.map(h=>'<tr><td><input type="text" class="h-nom" data-id="'+h.id+'" value="'+esc(h.nombre)+'"></td>' +
+      '<td><input type="text" class="h-rango" data-id="'+h.id+'" value="'+esc(h.rango||"")+'" placeholder="08:00–09:00"></td>' +
+      '<td><button class="b peligro mini" data-borrahora="'+h.id+'">Eliminar</button></td></tr>').join("") +
+    '</tbody></table><button class="b sec mini" id="btnAddHora" style="margin-top:10px">Añadir hora</button></div>';
+
+  c.querySelectorAll(".h-nom").forEach(i=>i.onchange = async ()=>{
+    const h = D.horas.find(h=>h.id===i.dataset.id); h.nombre = i.value.trim() || h.nombre;
+    await guardarAjustes(); pintarProfesorado(); pintarParte();
+  });
+  c.querySelectorAll(".h-rango").forEach(i=>i.onchange = async ()=>{
+    const h = D.horas.find(h=>h.id===i.dataset.id); h.rango = i.value.trim();
+    await guardarAjustes(); pintarParte();
+  });
+  c.querySelectorAll("[data-borrahora]").forEach(b=>b.onclick = async ()=>{
+    if(D.horas.length <= 1) return;
+    if(!confirm("¿Eliminar esta hora del cuadro?")) return;
+    D.horas = D.horas.filter(h=>h.id!==b.dataset.borrahora);
+    await guardarAjustes(); recalcular(); pintarProfesorado(); pintarBloquesDias(); pintarParte();
+  });
+  const add = document.getElementById("btnAddHora");
+  if(add) add.onclick = async ()=>{
+    D.horas.push({id:"h"+Math.random().toString(36).slice(2,7), nombre:(D.horas.length+1)+"ª", rango:""});
+    await guardarAjustes(); pintarProfesorado(); pintarBloquesDias();
+  };
+}
+
+/* ============================================================
+   BAJAS Y AUSENCIAS LARGAS (solo dirección)
+   ============================================================ */
+function pintarHorarioSemanal(patron){
+  patron = patron || {};
+  const cont = document.getElementById("bHorario");
+  cont.innerHTML = '<table class="semana"><thead><tr><th></th>' +
+    DIAS.map(d=>'<th>'+d+'</th>').join("") + '</tr></thead><tbody>' +
+    D.horas.map(h=>
+      '<tr><td class="hora-lbl">'+esc(h.nombre)+'<small>'+esc(h.rango||"")+'</small></td>' +
+      DIAS.map((d,i)=>{
+        const c = patron[i+"-"+h.id] || {};
+        return '<td data-dia="'+i+'" data-hora="'+h.id+'">' +
+          '<input type="text" class="s-curso" list="listaCursos" placeholder="Grupo" value="'+esc(c.curso||"")+'">' +
+          '<input type="text" class="s-aula" placeholder="Aula" value="'+esc(c.aula||"")+'">' +
+          '</td>';
+      }).join("") + '</tr>').join("") +
+    '</tbody></table>';
+}
+function leerHorarioSemanal(){
+  const patron = {};
+  document.querySelectorAll("#bHorario td[data-dia]").forEach(td=>{
+    const curso = td.querySelector(".s-curso").value.trim();
+    const aula  = td.querySelector(".s-aula").value.trim();
+    if(curso || aula) patron[td.dataset.dia + "-" + td.dataset.hora] = {curso:curso, aula:aula};
+  });
+  return patron;
+}
+// Repite el horario semanal en cada día laborable de la baja
+function expandirBaja(patron, ini, fin, obs){
+  const franjas = [];
+  rangoLaborable(ini, fin).forEach(fecha=>{
+    const dia = diaSemana(fecha);
+    D.horas.forEach(h=>{
+      const c = patron[dia + "-" + h.id];
+      if(!c) return;
+      franjas.push({fecha:fecha, horaId:h.id, curso:c.curso||"", aula:c.aula||"", tarea:obs||""});
+    });
+  });
+  return franjas;
+}
+async function guardarBaja(){
+  const err = document.getElementById("errBaja");
+  const profesorId = document.getElementById("bProfesor").value;
+  const ini = document.getElementById("bIni").value;
+  let fin = document.getElementById("bFin").value;
+  const semanas = parseInt(document.getElementById("bSemanas").value, 10);
+
+  if(!profesorId){ err.textContent = "Falta indicar de quién es la baja."; return; }
+  if(!ini){ err.textContent = "Falta el primer día de la baja."; return; }
+  if(!fin && semanas > 0){
+    const [a,m,d] = ini.split("-").map(Number);
+    const f = new Date(a, m-1, d + semanas*7 - 1);
+    fin = f.getFullYear()+"-"+String(f.getMonth()+1).padStart(2,"0")+"-"+String(f.getDate()).padStart(2,"0");
+  }
+  if(!fin){ err.textContent = "Indica el último día previsto o cuántas semanas durará."; return; }
+  if(fin < ini){ err.textContent = "El último día es anterior al primero."; return; }
+
+  const patron = leerHorarioSemanal();
+  if(!Object.keys(patron).length){ err.textContent = "Rellena al menos una hora del horario semanal."; return; }
+
+  const obs = document.getElementById("bObs").value.trim();
+  const franjas = expandirBaja(patron, ini, fin, obs);
+  if(!franjas.length){ err.textContent = "El periodo indicado no tiene días laborables."; return; }
+  err.textContent = "";
+
+  const btn = document.getElementById("btnGuardarBaja");
+  btn.disabled = true; btn.textContent = "Guardando…";
+  const { error } = await sb.from("ausencias").insert({
+    profesor_id: profesorId, tipo: "baja", motivo: "Ausencia de larga duración",
+    descripcion: obs, patron: patron, franjas: franjas, origen: "direccion"
+  });
+  btn.disabled = false; btn.textContent = "Registrar baja y generar sustituciones";
+  if(error){ err.textContent = "No se ha podido guardar: " + error.message; return; }
+
+  document.getElementById("bSemanas").value = "";
+  document.getElementById("bObs").value = "";
+  pintarHorarioSemanal({});
+  await cargarPrivado(); repintarTodo();
+  aviso("Baja registrada · " + franjas.length + " horas generadas");
+}
+function pintarBajas(){
+  if(!esAdmin) return;
+  pintarSelectBaja();
+  const bajas = D.ausencias.filter(a=>a.tipo === "baja");
+  const c = document.getElementById("listaBajas");
+  if(!bajas.length){ c.innerHTML = '<div class="vacio">No hay ninguna baja registrada.</div>'; return; }
+  c.innerHTML = '<div class="lista-aus">' + bajas.map(a=>{
+    const fechas = [...new Set(a.franjas.map(f=>f.fecha))].sort();
+    const sin = a.franjas.filter((f,i)=>!asignaciones[a.id+"|"+i]).length;
+    return '<div class="item-aus"><div class="txt"><b>'+esc(nombreProf(a.profesorId))+'</b> · ' +
+      esc(fechaCorta(fechas[0])) + ' a ' + esc(fechaCorta(fechas[fechas.length-1])) +
+      (a.descripcion ? '<div class="meta">'+esc(a.descripcion)+'</div>' : '') +
+      '<div style="margin-top:7px"><span class="chip">'+fechas.length+' días</span>' +
+      '<span class="chip">'+a.franjas.length+' horas a cubrir</span>' +
+      (sin ? '<span class="chip rojo">'+sin+' sin cubrir</span>' : '<span class="chip">todo cubierto</span>') +
+      '</div></div>' +
+      '<button class="b sec mini" data-copiar="'+a.id+'">Usar su horario</button>' +
+      '<button class="b peligro mini" data-borrarbaja="'+a.id+'">Dar de alta</button></div>';
+  }).join("") + '</div>';
+
+  c.querySelectorAll("[data-borrarbaja]").forEach(b=>{
+    b.onclick = async ()=>{
+      if(!confirm("¿Dar de alta y borrar esta baja? Desaparecerán todas sus sustituciones pendientes.")) return;
+      const { error } = await sb.from("ausencias").delete().eq("id", b.dataset.borrarbaja);
+      if(error){ fallo(error, "borrar la baja"); return; }
+      await cargarPrivado(); repintarTodo(); aviso("Baja dada de alta");
+    };
+  });
+  c.querySelectorAll("[data-copiar]").forEach(b=>{
+    b.onclick = ()=>{
+      const a = D.ausencias.find(x=>x.id === b.dataset.copiar);
+      document.getElementById("bProfesor").value = a.profesorId;
+      pintarHorarioSemanal(a.patron || {});
+      window.scrollTo({top:0, behavior:"instant"});
+      aviso("Horario cargado: ajusta las fechas y guarda");
+    };
+  });
+}
+function pintarSelectBaja(){
+  const s = document.getElementById("bProfesor"), actual = s.value;
+  s.innerHTML = '<option value="">Selecciona…</option>' +
+    D.profesores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
+      .map(p=>'<option value="'+p.id+'">'+esc(p.nombre)+'</option>').join("");
+  if(actual) s.value = actual;
+}
+
+/* ============================================================
+   RECUENTO DE GUARDIAS POR PROFESOR
+   ============================================================ */
+function contarGuardias(desde){
+  const c = {}; D.profesores.forEach(p=>c[p.id] = 0);
+  todasLasFranjas().forEach(f=>{
+    if(desde && f.fecha < desde) return;
+    const a = asignaciones[f.clave];
+    if(a && c[a] !== undefined) c[a]++;
+  });
+  return c;
+}
+function pintarReparto(){
+  if(!esAdmin) return;
+  const desde = document.getElementById("repDesde").value;
+  const cuenta = contarGuardias(desde);
+  const cont = document.getElementById("tablaReparto");
+  if(!D.profesores.length){ cont.innerHTML = '<div class="vacio">Todavía no hay profesorado dado de alta.</div>'; return; }
+
+  const filas = D.profesores.map(p=>({
+      id:p.id, nombre:p.nombre, huecos:p.guardias.length,
+      previas:p.previas || 0, hechas:cuenta[p.id] || 0, total:(p.previas || 0) + (cuenta[p.id] || 0)
+    })).sort((a,b)=> (b.total - a.total) || a.nombre.localeCompare(b.nombre,"es"));
+  const total = filas.reduce((s,f)=>s + f.total, 0);
+  const conGuardia = filas.filter(f=>f.huecos > 0);
+  const media = conGuardia.length ? (total / conGuardia.length) : 0;
+  const tope = Math.max(1, ...filas.map(f=>f.total));
+
+  cont.innerHTML =
+    '<div class="resumen"><div><b>'+total+'</b>guardias cubiertas</div>' +
+    '<div><b>'+media.toFixed(1)+'</b>media por profesor con guardia</div></div>' +
+    '<table class="parte"><thead><tr><th>Profesor</th><th style="width:120px">Huecos</th>' +
+    '<th style="width:120px">Ajuste inicial</th><th style="width:110px">Registradas</th>' +
+    '<th style="width:80px">Total</th><th>Reparto</th></tr></thead><tbody>' +
+    filas.map(f=>
+      '<tr><td>'+esc(f.nombre)+'</td>' +
+      '<td>'+f.huecos+(f.huecos ? '' : ' <span style="color:var(--gris);font-size:12px">(ninguno)</span>')+'</td>' +
+      '<td><input type="number" min="0" class="in-previas" data-prof="'+f.id+'" value="'+f.previas+'" style="width:70px;padding:4px 6px;font-size:13px"></td>' +
+      '<td style="font-variant-numeric:tabular-nums">'+f.hechas+'</td>' +
+      '<td style="font-weight:640;font-variant-numeric:tabular-nums">'+f.total+'</td>' +
+      '<td><span style="display:inline-block;height:12px;border-radius:2px;background:var(--guardia);width:'+
+        Math.round(100*f.total/tope)+'%;min-width:'+(f.total?"6px":"0")+'"></span></td></tr>'
+    ).join("") + '</tbody></table>' +
+    '<p class="ayuda" style="margin-top:12px">«Registradas» son las guardias que salen de las ausencias que hay ahora mismo en el sistema. «Ajuste inicial» es un número que pones tú: guardias cubiertas antes de usar el programa, o de ausencias ya borradas. El reparto automático usa el total.</p>';
+
+  cont.querySelectorAll(".in-previas").forEach(i=>{
+    i.onchange = async ()=>{
+      const p = D.profesores.find(x=>x.id === i.dataset.prof);
+      p.previas = Math.max(0, parseInt(i.value, 10) || 0);
+      await guardarPrevias(p);
+      recalcular(); pintarReparto(); pintarParte();
+      aviso("Recuento actualizado");
+    };
+  });
+}
+
+/* ============================================================
+   ACTUALIZACIÓN EN DIRECTO
+   ============================================================ */
+let canal = null, sondeo = null;
+
+function repintarTodo(){
+  pintarParte(); pintarAusencias(); pintarReparto(); pintarProfesorado(); pintarBajas();
+}
+function escucharCambios(){
+  if(!esAdmin) return;
+  if(!canal){
+    canal = sb.channel("guardias-en-vivo")
+      .on("postgres_changes", {event:"*", schema:"public", table:"ausencias"}, async ()=>{
+        await cargarPrivado(); repintarTodo(); aviso("Nueva ausencia recibida");
+      })
+      .subscribe();
+  }
+  // Red de seguridad por si el proyecto no tiene activado Realtime:
+  // cada 45 s comprueba si ha cambiado el número de ausencias.
+  if(!sondeo) sondeo = setInterval(async ()=>{
+    if(!esAdmin || document.hidden) return;
+    const antes = D.ausencias.length;
+    await cargarPrivado();
+    if(D.ausencias.length !== antes){ repintarTodo(); aviso("Parte actualizado"); }
+  }, 45000);
+}
+function dejarDeEscuchar(){
+  if(canal){ sb.removeChannel(canal); canal = null; }
+  if(sondeo){ clearInterval(sondeo); sondeo = null; }
+}
+
+/* ============================================================
+   ACCESO Y NAVEGACIÓN
+   ============================================================ */
+function irA(vista){
+  if(!esAdmin && vista !== "nueva") vista = "nueva";
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.vista===vista));
+  document.querySelectorAll("section.vista").forEach(s=>s.classList.toggle("activa", s.id === "v-"+vista));
+  window.scrollTo({top:0, behavior:"instant"});
+}
+function aplicarAcceso(){
+  document.querySelectorAll(".solo-admin").forEach(e=>e.hidden = !esAdmin);
+  document.getElementById("cajaAcceso").hidden = esAdmin;
+  document.getElementById("btnSalir").hidden = !esAdmin;
+  document.getElementById("selloUsuario").textContent = "Dirección";
+  if(!esAdmin) irA("nueva");
+}
+async function entrar(){
+  const campo = document.getElementById("clave");
+  const clave = campo.value;
+  if(!clave){ campo.focus(); return; }
+  const btn = document.getElementById("btnEntrar");
+  btn.disabled = true; btn.textContent = "Entrando…";
+  const { error } = await sb.auth.signInWithPassword({ email: CUENTA_DIRECCION, password: clave });
+  btn.disabled = false; btn.textContent = "Entrar";
+  if(error){
+    console.error("Login:", error);
+    document.getElementById("errAcceso").textContent =
+      "Supabase dice: " + error.message + " (código " + (error.status || "?") + ") · cuenta: " + CUENTA_DIRECCION;
+    campo.select();
+    return;
+  }
+  campo.value = "";
+  document.getElementById("errAcceso").textContent = "";
+  esAdmin = true;
+  aplicarAcceso();
+  await cargarPrivado();
+  irA("parte"); repintarTodo();
+  escucharCambios();
+}
+
+document.getElementById("btnSalir").onclick = async ()=>{
+  await sb.auth.signOut();
+  dejarDeEscuchar();
+  esAdmin = false; D.ausencias = []; D.manuales = {}; asignaciones = {};
+  aplicarAcceso(); aviso("Sesión cerrada");
+};
+document.getElementById("btnGuardarBaja").onclick = guardarBaja;
+document.getElementById("bSemanas").oninput = ()=>{ if(document.getElementById("bSemanas").value) document.getElementById("bFin").value = ""; };
+document.getElementById("repDesde").onchange = pintarReparto;
+document.getElementById("btnRepTodo").onclick = ()=>{ document.getElementById("repDesde").value = ""; pintarReparto(); };
+document.getElementById("btnEntrar").onclick = entrar;
+document.getElementById("clave").onkeydown = e=>{ if(e.key === "Enter") entrar(); };
+document.querySelectorAll("nav.tabs button").forEach(b=>{
+  b.onclick = ()=>{
+    irA(b.dataset.vista);
+    if(b.dataset.vista === "ausencias") pintarAusencias();
+    if(b.dataset.vista === "profesorado") pintarProfesorado();
+    if(b.dataset.vista === "nueva"){ pintarSelectProfesor(); pintarBloquesDias(); }
+    if(b.dataset.vista === "parte") pintarParte();
+    if(b.dataset.vista === "reparto") pintarReparto();
+    if(b.dataset.vista === "bajas") pintarBajas();
+  };
+});
+document.getElementById("btnOtra").onclick = ()=>{
+  document.getElementById("gracias").hidden = true;
+  document.getElementById("formularioAus").hidden = false;
+};
+document.getElementById("btnHoy").onclick = ()=>{ document.getElementById("fechaParte").value = hoyISO(); pintarParte(); };
+document.getElementById("fechaParte").onchange = pintarParte;
+document.getElementById("btnRecargar").onclick = async ()=>{ await cargarPublico(); await cargarPrivado(); pintarParte(); aviso("Datos actualizados"); };
+document.getElementById("btnPDF").onclick = generarPDF;
+document.getElementById("btnGuardarAus").onclick = enviarAusencia;
+document.getElementById("fIni").onchange = pintarBloquesDias;
+document.getElementById("fFin").onchange = pintarBloquesDias;
+document.querySelectorAll('input[name=tipo]').forEach(r=>r.onchange = ()=>{
+  document.getElementById("cajaFin").hidden = document.querySelector('input[name=tipo]:checked').value !== "periodo";
+  pintarBloquesDias();
+});
+document.getElementById("btnAddProf").onclick = async ()=>{
+  const i = document.getElementById("nuevoProf"), n = i.value.trim();
+  if(!n) return;
+  const { error } = await sb.from("profesores").insert({nombre:n, guardias:[]});
+  if(error){ fallo(error, "añadir al profesor"); return; }
+  i.value = ""; i.focus();
+  await cargarPublico(); pintarProfesorado(); pintarSelectProfesor();
+};
+document.getElementById("nuevoProf").onkeydown = e=>{ if(e.key === "Enter") document.getElementById("btnAddProf").click(); };
+document.getElementById("editorCursos").onchange = async e=>{
+  D.cursos = e.target.value.split(",").map(s=>s.trim()).filter(Boolean);
+  await guardarAjustes(); pintarSelectProfesor();
+};
+document.getElementById("btnExport").onclick = ()=>descargarFichero(JSON.stringify(D,null,2), "guardias-copia-"+hoyISO()+".json", "application/json");
+
+(async function inicio(){
+  if(!conectar()) return;
+  document.getElementById("fechaParte").value = hoyISO();
+  document.getElementById("fIni").value = hoyISO();
+  await cargarPublico();
+  const { data } = await sb.auth.getSession();
+  esAdmin = !!(data && data.session);
+  aplicarAcceso();
+  if(esAdmin){ await cargarPrivado(); repintarTodo(); escucharCambios(); }
+  pintarSelectProfesor();
+  pintarBloquesDias();
+  pintarHorarioSemanal({});
+})();
+</script>
+</html>
