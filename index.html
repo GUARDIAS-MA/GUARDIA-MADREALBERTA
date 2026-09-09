@@ -170,6 +170,16 @@
   .celda-guardia[data-estado="d"]::after{content:"D";color:#5c4708;font-size:12px;font-weight:700}
   .scroll-x{overflow-x:auto;border:1px solid var(--linea);background:var(--blanco);cursor:grab}
   .scroll-x.arrastrando{cursor:grabbing;user-select:none}
+  /* barra de desplazamiento gemela, colocada encima de la tabla */
+  .scroll-espejo{
+    overflow-x:scroll;overflow-y:hidden;height:16px;margin-bottom:6px;
+    border:1px solid var(--linea);border-radius:99px;background:#fff;
+  }
+  .scroll-espejo div{height:1px}
+  .scroll-espejo::-webkit-scrollbar{height:14px}
+  .scroll-espejo::-webkit-scrollbar-track{background:#fff;border-radius:99px}
+  .scroll-espejo::-webkit-scrollbar-thumb{background:var(--naranja);border-radius:99px;border:3px solid #fff}
+  .scroll-espejo{scrollbar-width:thin;scrollbar-color:var(--naranja) #fff}
   .celda-guardia.bloq{
     background:repeating-linear-gradient(45deg,#f4f6f8,#f4f6f8 4px,#e9edf1 4px,#e9edf1 8px);
     border-color:#e4e9ee;cursor:default;
@@ -415,6 +425,33 @@ let asignaciones = {};
 /* ============================================================
    UTILIDADES
    ============================================================ */
+// Barra de desplazamiento gemela encima de la tabla, para no tener que
+// bajar hasta el final cada vez que se quiere ver el viernes.
+function espejoScroll(el){
+  if(!el) return;
+  let espejo = el.previousElementSibling;
+  if(!espejo || !espejo.classList.contains("scroll-espejo")){
+    espejo = document.createElement("div");
+    espejo.className = "scroll-espejo";
+    espejo.appendChild(document.createElement("div"));
+    el.parentNode.insertBefore(espejo, el);
+    let bloqueo = false;
+    espejo.addEventListener("scroll", ()=>{
+      if(bloqueo) return;
+      bloqueo = true; el.scrollLeft = espejo.scrollLeft; bloqueo = false;
+    });
+    el.addEventListener("scroll", ()=>{
+      if(bloqueo) return;
+      bloqueo = true; espejo.scrollLeft = el.scrollLeft; bloqueo = false;
+    });
+    window.addEventListener("resize", ()=>espejoScroll(el));
+  }
+  // la anchura interior debe copiar la de la tabla para que la barra mida igual
+  espejo.firstChild.style.width = el.scrollWidth + "px";
+  espejo.hidden = el.scrollWidth <= el.clientWidth + 2;
+  espejo.scrollLeft = el.scrollLeft;
+}
+
 // Permite mover las cuadrículas anchas arrastrando con el ratón
 function habilitarArrastre(el){
   if(!el || el.dataset.arrastre) return;
@@ -1154,6 +1191,7 @@ function pintarProfesorado(){
       };
     });
     habilitarArrastre(cont);
+    espejoScroll(cont);
     cont.querySelectorAll("[data-quitar]").forEach(b=>{
       b.onclick = async ()=>{
         const p = D.profesores.find(x=>x.id===b.dataset.quitar);
@@ -1218,6 +1256,7 @@ function pintarHorarioSemanal(patron){
       }).join("") + '</tr>').join("") +
     '</tbody></table>';
   habilitarArrastre(cont);
+  espejoScroll(cont);
 }
 function leerHorarioSemanal(){
   const patron = {};
