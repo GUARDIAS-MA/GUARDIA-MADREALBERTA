@@ -128,6 +128,20 @@
   table.semana input:focus{border-color:var(--linea-fuerte);background:var(--blanco)}
   table.semana input.s-aula{margin-top:3px}
 
+  .buscador{position:relative;max-width:420px}
+  .buscador input[type=text]{width:100%}
+  .buscador input.error-campo{border-color:var(--alerta);background:var(--alerta-suave)}
+  .sugerencias{
+    position:absolute;left:0;right:0;top:100%;z-index:12;margin:2px 0 0;padding:0;list-style:none;
+    background:var(--blanco);border:1px solid var(--naranja);border-radius:var(--radio);
+    max-height:240px;overflow-y:auto;box-shadow:0 6px 18px rgba(76,83,97,.14);
+  }
+  .sugerencias[hidden]{display:none}
+  .sugerencias li{padding:8px 11px;font-size:14px;cursor:pointer;border-bottom:1px solid #f4f6f8}
+  .sugerencias li:last-child{border-bottom:none}
+  .sugerencias li.activa,.sugerencias li:hover{background:var(--naranja-suave);color:var(--naranja)}
+  .sugerencias li.nada{color:var(--gris);cursor:default;font-style:italic}
+  .sugerencias li.nada:hover{background:var(--blanco);color:var(--gris)}
   .aviso{border-left:3px solid var(--naranja);background:var(--naranja-suave);padding:10px 14px;font-size:13.5px;margin:18px 0}
   .error{color:var(--alerta);font-size:13.5px;margin-top:10px;min-height:1px}
   .gracias{border:1px solid var(--guardia);background:var(--guardia-suave);padding:26px;text-align:center}
@@ -150,9 +164,16 @@
   table.prof thead th.nom{z-index:3;background:var(--blanco)}
   table.prof td .sub{font-size:11.5px;color:var(--gris);font-weight:400}
   .celda-guardia{display:block;width:100%;height:30px;border:1px solid var(--linea);background:var(--blanco);cursor:pointer;border-radius:2px}
-  .celda-guardia[aria-pressed="true"]{background:var(--guardia);border-color:var(--guardia)}
-  .celda-guardia[aria-pressed="true"]::after{content:"G";color:#fff;font-size:12px;font-weight:700}
-  .scroll-x{overflow-x:auto;border:1px solid var(--linea);background:var(--blanco)}
+  .celda-guardia[data-estado="g"]{background:var(--guardia);border-color:var(--guardia)}
+  .celda-guardia[data-estado="g"]::after{content:"G";color:#fff;font-size:12px;font-weight:700}
+  .celda-guardia[data-estado="d"]{background:#f2c230;border-color:#d9a915}
+  .celda-guardia[data-estado="d"]::after{content:"D";color:#5c4708;font-size:12px;font-weight:700}
+  .scroll-x{overflow-x:auto;border:1px solid var(--linea);background:var(--blanco);cursor:grab}
+  .scroll-x.arrastrando{cursor:grabbing;user-select:none}
+  .celda-guardia.bloq{
+    background:repeating-linear-gradient(45deg,#f4f6f8,#f4f6f8 4px,#e9edf1 4px,#e9edf1 8px);
+    border-color:#e4e9ee;cursor:default;
+  }
   .dia-sep{border-left:2px solid var(--linea-fuerte)}
 
   .lista-aus{border-top:2px solid var(--naranja)}
@@ -216,7 +237,7 @@
 
       <div class="campo">
         <label class="tit" for="fProfesor">Profesor o profesora <span class="req">*</span></label>
-        <select id="fProfesor"></select>
+        <div class="buscador"><input type="text" id="fProfesorTxt" placeholder="Escribe tu apellido o tu nombre" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"><input type="hidden" id="fProfesor"><ul class="sugerencias" id="fProfesorLista" hidden role="listbox"></ul></div>
       </div>
 
       <div class="campo">
@@ -297,7 +318,7 @@
     <div class="panel">
       <div class="campo">
         <label class="tit" for="bProfesor">Profesor o profesora <span class="req">*</span></label>
-        <select id="bProfesor"></select>
+        <div class="buscador"><input type="text" id="bProfesorTxt" placeholder="Escribe el apellido o el nombre" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"><input type="hidden" id="bProfesor"><ul class="sugerencias" id="bProfesorLista" hidden role="listbox"></ul></div>
       </div>
 
       <div class="fila" style="margin-bottom:18px">
@@ -357,6 +378,12 @@
       <button class="b" id="btnAddProf">Añadir</button>
     </div>
 
+    <p class="ayuda" style="margin-bottom:10px">
+      Cada clic cambia la casilla: <b style="color:var(--guardia)">verde</b> es hora de guardia,
+      <b style="color:#a5820a">amarillo</b> es desdoble (grupo que puede prescindir del profesor en casos
+      especiales) y el tercer clic la deja vacía. Las casillas rayadas son horas que no existen ese día.
+      Puedes arrastrar la tabla con el ratón para ver el resto de la semana.
+    </p>
     <div class="scroll-x" id="tablaProf"></div>
 
     <h3>Horario del centro</h3>
@@ -388,6 +415,41 @@ let asignaciones = {};
 /* ============================================================
    UTILIDADES
    ============================================================ */
+// Permite mover las cuadrículas anchas arrastrando con el ratón
+function habilitarArrastre(el){
+  if(!el || el.dataset.arrastre) return;
+  el.dataset.arrastre = "1";
+  let activo = false, movido = false, x0 = 0, izq0 = 0;
+  el.addEventListener("pointerdown", e=>{
+    if(e.pointerType === "touch") return;          // en el móvil ya se desliza solo
+    activo = true; movido = false;
+    x0 = e.clientX; izq0 = el.scrollLeft;
+  });
+  el.addEventListener("pointermove", e=>{
+    if(!activo) return;
+    const dx = e.clientX - x0;
+    if(!movido && Math.abs(dx) < 5) return;
+    movido = true;
+    el.classList.add("arrastrando");
+    el.scrollLeft = izq0 - dx;
+  });
+  const soltar = ()=>{ activo = false; el.classList.remove("arrastrando"); };
+  el.addEventListener("pointerup", soltar);
+  el.addEventListener("pointerleave", soltar);
+  // si se ha arrastrado, el clic no debe marcar la casilla de debajo
+  el.addEventListener("click", e=>{ if(movido){ e.stopPropagation(); e.preventDefault(); movido = false; } }, true);
+}
+
+// Segundo desplegable, solo cuando la hora se ha quedado sin guardia
+function desdobleHTML(fecha, f, asig){
+  if(asig) return "";
+  const cand = candidatosDesdoble(fecha, f.horaId, f.clave);
+  if(!cand.length) return '<div style="font-size:11.5px;color:var(--gris);margin-top:4px">Sin desdobles disponibles</div>';
+  return '<select class="reasignar desdoble-sel" data-clave="'+f.clave+'" style="border-color:#d9a915;background:#fffbef">' +
+    '<option value="">— cubrir con desdoble —</option>' +
+    cand.map(p=>'<option value="'+p.id+'">'+esc(p.nombre)+'</option>').join("") + '</select>';
+}
+
 function esc(t){ return String(t==null?"":t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function aviso(t){
   const e = document.getElementById("estado");
@@ -439,7 +501,8 @@ async function cargarPublico(){
   ]);
   if(aj.data){ D.centro = aj.data.centro || ""; D.horas = aj.data.horas || []; D.cursos = aj.data.cursos || []; }
   if(pr.data) D.profesores = pr.data.map(p=>({
-    id:p.id, nombre:p.nombre, guardias:p.guardias || [], previas: p.guardias_previas || 0
+    id:p.id, nombre:p.nombre, guardias:p.guardias || [], desdobles:p.desdobles || [],
+    previas: p.guardias_previas || 0
   }));
   if(aj.error) fallo(aj.error, "cargar los ajustes");
   if(pr.error) fallo(pr.error, "cargar el profesorado");
@@ -459,15 +522,20 @@ async function cargarPrivado(){
   (ma.data || []).forEach(m=>{ D.manuales[m.clave] = m.profesor_id || ""; });
   if(au.error) fallo(au.error, "cargar las ausencias");
   recalcular();
+  await congelarPasado();
 }
 async function guardarAjustes(){
   const { error } = await sb.from("ajustes").update({centro:D.centro, horas:D.horas, cursos:D.cursos}).eq("id",1);
   if(error) fallo(error, "guardar los ajustes");
 }
 async function guardarGuardias(p){
-  const { error } = await sb.from("profesores").update({guardias:p.guardias}).eq("id", p.id);
+  const { error } = await sb.from("profesores")
+    .update({guardias:p.guardias, desdobles:p.desdobles}).eq("id", p.id);
   if(error) fallo(error, "guardar las guardias");
 }
+// Una hora puede no existir todos los días (8ª y 9ª solo martes y jueves)
+function horaEnDia(h, dia){ return !h.dias || h.dias.indexOf(dia) >= 0; }
+function horasDelDia(dia){ return D.horas.filter(h=>horaEnDia(h, dia)); }
 async function guardarPrevias(p){
   const { error } = await sb.from("profesores").update({guardias_previas:p.previas}).eq("id", p.id);
   if(error) fallo(error, "guardar el ajuste inicial");
@@ -518,7 +586,7 @@ function recalcular(){
     if(m === undefined) return;
     const k = f.fecha+"|"+f.horaId;
     ocupado[k] = ocupado[k] || new Set();
-    if(m && D.profesores.some(p=>p.id===m)){
+    if(m && D.profesores.some(p=>p.id===m)){   // incluye los desdobles elegidos a mano
       asignaciones[f.clave] = m; ocupado[k].add(m); carga[m] = (carga[m]||0)+1;
     }else{
       asignaciones[f.clave] = null;
@@ -539,6 +607,21 @@ function recalcular(){
   });
 }
 // Para el parte y el PDF: solo las horas que necesitan sustituto.
+// Las guardias de días ya pasados se fijan para que no cambien nunca más:
+// aunque después se toque el cuadro de guardias, lo hecho, hecho está.
+async function congelarPasado(){
+  if(!esAdmin) return;
+  const hoy = hoyISO();
+  const nuevos = todasLasFranjas().filter(f=>f.cubre && f.fecha < hoy && !(f.clave in D.manuales));
+  if(!nuevos.length) return;
+  const filas = nuevos.map(f=>({
+    clave: f.clave, profesor_id: asignaciones[f.clave] || null, actualizado_en: new Date().toISOString()
+  }));
+  const { error } = await sb.from("manuales").upsert(filas, {onConflict:"clave"});
+  if(error){ console.error("congelar", error); return; }
+  filas.forEach(r=>{ D.manuales[r.clave] = r.profesor_id || ""; });
+}
+
 function franjasDelDia(fecha){ return todasLasFranjas().filter(f=>f.fecha===fecha && f.cubre); }
 function candidatos(fecha, horaId, clave){
   const dia = diaSemana(fecha), usados = new Set(), faltan = new Set();
@@ -550,6 +633,24 @@ function candidatos(fecha, horaId, clave){
     if(f.clave !== clave && asignaciones[f.clave]) usados.add(asignaciones[f.clave]);
   });
   return D.profesores.filter(p=>p.guardias.includes(dia+"-"+horaId) && !usados.has(p.id) && !faltan.has(p.id));
+}
+// Solo para cuando no queda nadie de guardia: profesorado con desdoble a esa hora
+function candidatosDesdoble(fecha, horaId, clave){
+  const dia = diaSemana(fecha), usados = new Set(), faltan = new Set();
+  todasLasFranjas().filter(f=>f.fecha===fecha).forEach(f=>{
+    if(f.ausencia.tipo === "baja") faltan.add(f.ausencia.profesorId);
+    if(f.horaId !== horaId) return;
+    faltan.add(f.ausencia.profesorId);
+    if(f.clave !== clave && asignaciones[f.clave]) usados.add(asignaciones[f.clave]);
+  });
+  return D.profesores.filter(p=>p.desdobles.includes(dia+"-"+horaId) && !usados.has(p.id) && !faltan.has(p.id));
+}
+// ¿la persona asignada lo está por desdoble y no por guardia?
+function esDesdoble(fecha, horaId, profId){
+  const p = D.profesores.find(x=>x.id === profId);
+  if(!p) return false;
+  const k = diaSemana(fecha)+"-"+horaId;
+  return !p.guardias.includes(k) && p.desdobles.includes(k);
 }
 
 /* ============================================================
@@ -590,8 +691,13 @@ function pintarParte(){
       '<td class="hora">'+esc(nombreHora(f.horaId))+'<small>'+esc(rangoHora(f.horaId))+'</small></td>' +
       '<td>'+esc(nombreProf(f.ausencia.profesorId))+'<br><span style="font-size:12px;color:var(--gris)">'+esc(f.ausencia.motivo||"")+'</span></td>' +
       '<td>'+esc(f.franja.curso||"—")+'</td><td>'+esc(f.franja.aula||"—")+'</td><td>'+esc(f.franja.tarea||"—")+'</td>' +
-      '<td>'+(asig ? '<span class="cubre">'+esc(nombreProf(asig))+'</span>' : '<span class="sin-cubrir">Sin cubrir</span>') +
-      '<select class="reasignar" data-clave="'+f.clave+'"><option value="">— sin cubrir —</option>'+extra+opts+'</select></td></tr>';
+      '<td>' +
+        (asig
+          ? '<span class="cubre">'+esc(nombreProf(asig))+(esDesdoble(fecha, f.horaId, asig) ? ' <small style="color:#a5820a;font-weight:600">(desdoble)</small>' : '')+'</span>'
+          : '<span class="sin-cubrir">Sin cubrir</span>') +
+        '<select class="reasignar" data-clave="'+f.clave+'"><option value="">— sin cubrir —</option>'+extra+opts+'</select>' +
+        desdobleHTML(fecha, f, asig) +
+      '</td></tr>';
   });
   html += '</tbody></table>';
   if(sinCubrir) html += '<p class="nota-asterisco">Las horas marcadas con asterisco no tienen profesorado de guardia disponible. Requieren solución de Jefatura de Estudios.</p>';
@@ -679,7 +785,8 @@ function generarPDF(){
       const a = asignaciones[f.clave];
       if(!a){ sinCubrir.push(i); quedaAlguna = true; }
       return [horaInicio(f.horaId), f.franja.curso||"", f.franja.aula||"",
-              a ? nombreProf(a) : "* Sin cubrir", f.franja.tarea||""];
+              a ? nombreProf(a) + (esDesdoble(f.fecha, f.horaId, a) ? " (desdoble)" : "") : "* Sin cubrir",
+              f.franja.tarea||""];
     });
 
     doc.autoTable({
@@ -721,12 +828,109 @@ function descargarFichero(txt, nombre, tipo){
 /* ============================================================
    FORMULARIO DE AUSENCIA
    ============================================================ */
+function sinAcentos(t){
+  return String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[.,;:'\u2019\-]/g," ")      // comas, puntos y guiones no estorban
+    .replace(/\bm\u00aa\b|\bma\b|\bm\b/g,"maria")  // Mª y M. valen como María
+    .replace(/\u00aa|\u00ba/g,"")
+    .replace(/\s+/g," ").trim();
+}
+// Ordena por lo cerca que está la coincidencia: primero quien empieza
+// una palabra por lo escrito, después el resto.
+function relevancia(nombre, trozos){
+  const palabras = sinAcentos(nombre).split(" ");
+  let puntos = 0;
+  trozos.forEach(t=>{
+    if(palabras.some(w=>w === t)) puntos += 0;
+    else if(palabras.some(w=>w.startsWith(t))) puntos += 1;
+    else puntos += 2;
+  });
+  return puntos;
+}
+// Buscador de profesorado: filtra por cualquier parte del nombre o del apellido
+function montarBuscador(base){
+  const txt = document.getElementById(base+"Txt");
+  const oculto = document.getElementById(base);
+  const lista = document.getElementById(base+"Lista");
+  if(!txt || txt.dataset.listo) return;
+  txt.dataset.listo = "1";
+  let marcado = -1;
+
+  const cerrar = ()=>{ lista.hidden = true; marcado = -1; txt.setAttribute("aria-expanded","false"); };
+  const elegir = p=>{
+    oculto.value = p.id; txt.value = p.nombre; txt.classList.remove("error-campo"); cerrar();
+  };
+  const abrir = ()=>{
+    const q = sinAcentos(txt.value);
+    // se buscan todas las palabras escritas, en cualquier orden
+    const trozos = q.split(/\s+/).filter(Boolean);
+    const res = D.profesores
+      .filter(p=>{ const n = sinAcentos(p.nombre); return trozos.every(t=>n.includes(t)); })
+      .sort((a,b)=>
+        (relevancia(a.nombre, trozos) - relevancia(b.nombre, trozos)) ||
+        a.nombre.localeCompare(b.nombre,"es"))
+      .slice(0, 40);
+    if(!D.profesores.length){
+      lista.innerHTML = '<li class="nada">Todavía no hay profesorado dado de alta</li>';
+    }else if(!res.length){
+      lista.innerHTML = '<li class="nada">Ningún nombre coincide</li>';
+    }else{
+      lista.innerHTML = res.map((p,i)=>'<li role="option" data-id="'+p.id+'" class="'+(i===marcado?"activa":"")+'">'+esc(p.nombre)+'</li>').join("");
+      lista.querySelectorAll("li[data-id]").forEach(li=>{
+        const tomar = e=>{ e.preventDefault(); elegir(D.profesores.find(p=>p.id===li.dataset.id)); };
+        li.onpointerdown = tomar;   // funciona con ratón y con el dedo
+        li.onclick = tomar;
+      });
+    }
+    lista.hidden = false; txt.setAttribute("aria-expanded","true");
+  };
+
+  txt.oninput = ()=>{ oculto.value = ""; marcado = -1; abrir(); };
+  txt.onfocus = abrir;
+  txt.onblur = ()=>{
+    setTimeout(()=>{
+      cerrar();
+      // si lo escrito coincide exactamente con un nombre, se da por elegido
+      if(!oculto.value){
+        const exacto = D.profesores.filter(p=>sinAcentos(p.nombre) === sinAcentos(txt.value));
+        if(exacto.length === 1) elegir(exacto[0]);
+        else if(txt.value.trim()) txt.classList.add("error-campo");
+      }
+    }, 150);
+  };
+  txt.onkeydown = e=>{
+    const items = [...lista.querySelectorAll("li[data-id]")];
+    if(e.key === "ArrowDown" || e.key === "ArrowUp"){
+      e.preventDefault();
+      if(lista.hidden) return abrir();
+      marcado += (e.key === "ArrowDown" ? 1 : -1);
+      if(marcado < 0) marcado = items.length - 1;
+      if(marcado >= items.length) marcado = 0;
+      items.forEach((li,i)=>li.classList.toggle("activa", i === marcado));
+      if(items[marcado]) items[marcado].scrollIntoView({block:"nearest"});
+    }else if(e.key === "Enter"){
+      if(!lista.hidden && items[marcado]){
+        e.preventDefault();
+        elegir(D.profesores.find(p=>p.id === items[marcado].dataset.id));
+      }
+    }else if(e.key === "Escape") cerrar();
+  };
+}
+function fijarProfesor(base, id){
+  const p = D.profesores.find(x=>x.id === id);
+  document.getElementById(base).value = p ? p.id : "";
+  document.getElementById(base+"Txt").value = p ? p.nombre : "";
+}
+function limpiarProfesor(base){
+  document.getElementById(base).value = "";
+  document.getElementById(base+"Txt").value = "";
+  document.getElementById(base+"Txt").classList.remove("error-campo");
+}
 function pintarSelectProfesor(){
-  const s = document.getElementById("fProfesor"), actual = s.value;
-  s.innerHTML = '<option value="">Selecciona…</option>' +
-    D.profesores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
-      .map(p=>'<option value="'+p.id+'">'+esc(p.nombre)+'</option>').join("");
-  if(actual) s.value = actual;
+  montarBuscador("fProfesor");
+  // si el elegido ya no existe (lo han borrado), se vacía
+  const oculto = document.getElementById("fProfesor");
+  if(oculto.value && !D.profesores.some(p=>p.id === oculto.value)) limpiarProfesor("fProfesor");
   document.getElementById("listaCursos").innerHTML = D.cursos.map(c=>'<option value="'+esc(c)+'">').join("");
 }
 function pintarBloquesDias(){
@@ -737,7 +941,7 @@ function pintarBloquesDias(){
   if(!fechas.length){ cont.innerHTML = '<div class="vacio">Elige primero la fecha de la ausencia.</div>'; return; }
 
   const previo = leerFranjasFormulario();
-  const opciones = (sel)=>D.horas.map(h=>
+  const opciones = (sel, dia)=>horasDelDia(dia).map(h=>
     '<option value="'+h.id+'"'+(h.id===sel?' selected':'')+'>'+esc(h.nombre)+' · '+esc(h.rango||"")+'</option>').join("");
 
   cont.innerHTML = fechas.map(fecha=>{
@@ -746,7 +950,7 @@ function pintarBloquesDias(){
     const selIni = marcadas.length ? D.horas[marcadas[0]].id : "";
     const selFin = marcadas.length ? D.horas[marcadas[marcadas.length-1]].id : "";
 
-    const filas = D.horas.map(h=>{
+    const filas = horasDelDia(diaSemana(fecha)).map(h=>{
       const p = previo.find(x=>x.fecha===fecha && x.horaId===h.id), on = !!p;
       return '<tr class="'+(on?"":"off")+'" data-fecha="'+fecha+'" data-hora="'+h.id+'">' +
         '<td><input type="checkbox" class="chk-hora" '+(on?"checked":"")+' aria-label="No estaré a la hora '+esc(h.nombre)+'"></td>' +
@@ -758,8 +962,8 @@ function pintarBloquesDias(){
 
     return '<div class="dia-bloque"><h4>'+fechaLarga(fecha)+'</h4>' +
       '<div class="rango-dia">No estaré desde ' +
-        '<select class="r-ini"><option value="">—</option>'+opciones(selIni)+'</select> hasta ' +
-        '<select class="r-fin"><option value="">—</option>'+opciones(selFin)+'</select>' +
+        '<select class="r-ini"><option value="">—</option>'+opciones(selIni, diaSemana(fecha))+'</select> hasta ' +
+        '<select class="r-fin"><option value="">—</option>'+opciones(selFin, diaSemana(fecha))+'</select>' +
         '<button type="button" class="b sec mini r-todo">Toda la jornada</button>' +
         '<button type="button" class="b sec mini r-nada">Vaciar</button>' +
       '</div>' +
@@ -833,7 +1037,7 @@ async function enviarAusencia(){
   const profesorId = document.getElementById("fProfesor").value;
   const motivoEl = document.querySelector('input[name=motivo]:checked');
   const franjas = leerFranjasFormulario();
-  if(!profesorId){ err.textContent = "Falta indicar quién se ausenta."; return; }
+  if(!profesorId){ err.textContent = "Elige tu nombre de la lista que aparece al escribir."; return; }
   if(!motivoEl){ err.textContent = "Falta el motivo de la ausencia."; return; }
   if(!franjas.length){ err.textContent = "Marca al menos una hora de ausencia."; return; }
   err.textContent = "";
@@ -848,7 +1052,7 @@ async function enviarAusencia(){
   btn.disabled = false; btn.textContent = "Enviar";
   if(error){ err.textContent = "No se ha podido enviar: " + error.message; return; }
 
-  document.getElementById("fProfesor").value = "";
+  limpiarProfesor("fProfesor");
   motivoEl.checked = false;
   document.getElementById("fDesc").value = "";
   pintarBloquesDias();
@@ -915,17 +1119,18 @@ function pintarProfesorado(){
     cont.innerHTML = '<div class="vacio">Añade al profesorado para empezar. Después marca sus horas de guardia.</div>';
   }else{
     let html = '<table class="prof"><thead><tr><th class="nom">Profesorado</th>';
-    DIAS.forEach((d,i)=>{ html += '<th colspan="'+D.horas.length+'" class="'+(i?"dia-sep":"")+'" style="text-transform:capitalize">'+d+'</th>'; });
+    DIAS.forEach((d,i)=>{ html += '<th colspan="'+horasDelDia(i).length+'" class="'+(i?"dia-sep":"")+'" style="text-transform:capitalize">'+d+'</th>'; });
     html += '<th></th></tr><tr><th class="nom"></th>';
-    DIAS.forEach((d,i)=>D.horas.forEach((h,j)=>{
+    DIAS.forEach((d,i)=>horasDelDia(i).forEach((h,j)=>{
       html += '<th class="'+(i&&j===0?"dia-sep":"")+'" style="font-weight:500">'+esc(h.nombre)+'</th>';
     }));
     html += '<th></th></tr></thead><tbody>';
     D.profesores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es")).forEach(p=>{
-      html += '<tr><td class="nom">'+esc(p.nombre)+'<span class="sub"> · '+p.guardias.length+' guardias</span></td>';
-      DIAS.forEach((d,i)=>D.horas.forEach((h,j)=>{
-        const k = i+"-"+h.id, on = p.guardias.includes(k);
-        html += '<td class="'+(i&&j===0?"dia-sep":"")+'"><button class="celda-guardia" aria-pressed="'+on+'" data-prof="'+p.id+'" data-slot="'+k+'" title="'+d+' '+esc(h.nombre)+'"></button></td>';
+      html += '<tr><td class="nom">'+esc(p.nombre)+'<span class="sub"> · '+p.guardias.length+' G · '+p.desdobles.length+' D</span></td>';
+      DIAS.forEach((d,i)=>horasDelDia(i).forEach((h,j)=>{
+        const k = i+"-"+h.id;
+        const estado = p.guardias.includes(k) ? "g" : (p.desdobles.includes(k) ? "d" : "");
+        html += '<td class="'+(i&&j===0?"dia-sep":"")+'"><button class="celda-guardia" data-estado="'+estado+'" data-prof="'+p.id+'" data-slot="'+k+'" title="'+d+' '+esc(h.nombre)+'" aria-label="'+esc(p.nombre)+' '+d+' '+esc(h.nombre)+'"></button></td>';
       }));
       html += '<td><button class="b peligro mini" data-quitar="'+p.id+'">Quitar</button></td></tr>';
     });
@@ -934,15 +1139,21 @@ function pintarProfesorado(){
     cont.querySelectorAll(".celda-guardia").forEach(b=>{
       b.onclick = async ()=>{
         const p = D.profesores.find(x=>x.id===b.dataset.prof), k = b.dataset.slot;
-        const i = p.guardias.indexOf(k);
-        if(i>=0) p.guardias.splice(i,1); else p.guardias.push(k);
-        b.setAttribute("aria-pressed", i<0);
+        const quita = (arr)=>{ const i = arr.indexOf(k); if(i>=0) arr.splice(i,1); };
+        const estado = b.dataset.estado;
+        quita(p.guardias); quita(p.desdobles);
+        let nuevo = "";
+        if(estado === ""){ p.guardias.push(k); nuevo = "g"; }          // 1er clic: guardia
+        else if(estado === "g"){ p.desdobles.push(k); nuevo = "d"; }   // 2º clic: desdoble
+        // 3er clic: se queda vacía
+        b.dataset.estado = nuevo;
         const sub = b.closest("tr").querySelector(".sub");
-        if(sub) sub.textContent = " · "+p.guardias.length+" guardias";
+        if(sub) sub.textContent = " · "+p.guardias.length+" G · "+p.desdobles.length+" D";
         await guardarGuardias(p);
-        recalcular(); pintarParte();
+        recalcular(); pintarParte(); pintarReparto();
       };
     });
+    habilitarArrastre(cont);
     cont.querySelectorAll("[data-quitar]").forEach(b=>{
       b.onclick = async ()=>{
         const p = D.profesores.find(x=>x.id===b.dataset.quitar);
@@ -998,6 +1209,7 @@ function pintarHorarioSemanal(patron){
     D.horas.map(h=>
       '<tr><td class="hora-lbl">'+esc(h.nombre)+'<small>'+esc(h.rango||"")+'</small></td>' +
       DIAS.map((d,i)=>{
+        if(!horaEnDia(h, i)) return '<td style="background:repeating-linear-gradient(45deg,#f4f6f8,#f4f6f8 4px,#e9edf1 4px,#e9edf1 8px)"></td>';
         const c = patron[i+"-"+h.id] || {};
         return '<td data-dia="'+i+'" data-hora="'+h.id+'">' +
           '<input type="text" class="s-curso" list="listaCursos" placeholder="Grupo" value="'+esc(c.curso||"")+'">' +
@@ -1005,6 +1217,7 @@ function pintarHorarioSemanal(patron){
           '</td>';
       }).join("") + '</tr>').join("") +
     '</tbody></table>';
+  habilitarArrastre(cont);
 }
 function leerHorarioSemanal(){
   const patron = {};
@@ -1035,7 +1248,7 @@ async function guardarBaja(){
   let fin = document.getElementById("bFin").value;
   const semanas = parseInt(document.getElementById("bSemanas").value, 10);
 
-  if(!profesorId){ err.textContent = "Falta indicar de quién es la baja."; return; }
+  if(!profesorId){ err.textContent = "Elige el nombre de la lista que aparece al escribir."; return; }
   if(!ini){ err.textContent = "Falta el primer día de la baja."; return; }
   if(!fin && semanas > 0){
     const [a,m,d] = ini.split("-").map(Number);
@@ -1099,7 +1312,7 @@ function pintarBajas(){
   c.querySelectorAll("[data-copiar]").forEach(b=>{
     b.onclick = ()=>{
       const a = D.ausencias.find(x=>x.id === b.dataset.copiar);
-      document.getElementById("bProfesor").value = a.profesorId;
+      fijarProfesor("bProfesor", a.profesorId);
       pintarHorarioSemanal(a.patron || {});
       window.scrollTo({top:0, behavior:"instant"});
       aviso("Horario cargado: ajusta las fechas y guarda");
@@ -1107,35 +1320,37 @@ function pintarBajas(){
   });
 }
 function pintarSelectBaja(){
-  const s = document.getElementById("bProfesor"), actual = s.value;
-  s.innerHTML = '<option value="">Selecciona…</option>' +
-    D.profesores.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre,"es"))
-      .map(p=>'<option value="'+p.id+'">'+esc(p.nombre)+'</option>').join("");
-  if(actual) s.value = actual;
+  montarBuscador("bProfesor");
+  const oculto = document.getElementById("bProfesor");
+  if(oculto.value && !D.profesores.some(p=>p.id === oculto.value)) limpiarProfesor("bProfesor");
 }
 
 /* ============================================================
    RECUENTO DE GUARDIAS POR PROFESOR
    ============================================================ */
 function contarGuardias(desde){
-  const c = {}; D.profesores.forEach(p=>c[p.id] = 0);
+  const c = {}, d = {};
+  D.profesores.forEach(p=>{ c[p.id] = 0; d[p.id] = 0; });
   todasLasFranjas().forEach(f=>{
     if(desde && f.fecha < desde) return;
     const a = asignaciones[f.clave];
-    if(a && c[a] !== undefined) c[a]++;
+    if(!a || c[a] === undefined) return;
+    c[a]++;
+    if(esDesdoble(f.fecha, f.horaId, a)) d[a]++;
   });
-  return c;
+  return {total:c, desdobles:d};
 }
 function pintarReparto(){
   if(!esAdmin) return;
   const desde = document.getElementById("repDesde").value;
-  const cuenta = contarGuardias(desde);
+  const cont2 = contarGuardias(desde), cuenta = cont2.total, desd = cont2.desdobles;
   const cont = document.getElementById("tablaReparto");
   if(!D.profesores.length){ cont.innerHTML = '<div class="vacio">Todavía no hay profesorado dado de alta.</div>'; return; }
 
   const filas = D.profesores.map(p=>({
       id:p.id, nombre:p.nombre, huecos:p.guardias.length,
-      previas:p.previas || 0, hechas:cuenta[p.id] || 0, total:(p.previas || 0) + (cuenta[p.id] || 0)
+      previas:p.previas || 0, hechas:cuenta[p.id] || 0, desd:desd[p.id] || 0,
+      total:(p.previas || 0) + (cuenta[p.id] || 0)
     })).sort((a,b)=> (b.total - a.total) || a.nombre.localeCompare(b.nombre,"es"));
   const total = filas.reduce((s,f)=>s + f.total, 0);
   const conGuardia = filas.filter(f=>f.huecos > 0);
@@ -1152,7 +1367,8 @@ function pintarReparto(){
       '<tr><td>'+esc(f.nombre)+'</td>' +
       '<td>'+f.huecos+(f.huecos ? '' : ' <span style="color:var(--gris);font-size:12px">(ninguno)</span>')+'</td>' +
       '<td><input type="number" min="0" class="in-previas" data-prof="'+f.id+'" value="'+f.previas+'" style="width:70px;padding:4px 6px;font-size:13px"></td>' +
-      '<td style="font-variant-numeric:tabular-nums">'+f.hechas+'</td>' +
+      '<td style="font-variant-numeric:tabular-nums">'+f.hechas +
+        (f.desd ? ' <small style="color:#a5820a">('+f.desd+' desdoble)</small>' : '')+'</td>' +
       '<td style="font-weight:640;font-variant-numeric:tabular-nums">'+f.total+'</td>' +
       '<td><span style="display:inline-block;height:12px;border-radius:2px;background:var(--guardia);width:'+
         Math.round(100*f.total/tope)+'%;min-width:'+(f.total?"6px":"0")+'"></span></td></tr>'
