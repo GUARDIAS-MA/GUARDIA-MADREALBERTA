@@ -1136,7 +1136,12 @@ function pintarAusencias(){
 
   c.querySelectorAll("[data-borrar]").forEach(b=>{
     b.onclick = async ()=>{
-      if(!confirm("¿Borrar esta ausencia? Las guardias se recalcularán.")) return;
+      const aus = D.ausencias.find(x=>x.id === b.dataset.borrar);
+      const pasadas = aus ? aus.franjas.filter(f=>f.fecha < hoyISO()).length : 0;
+      const texto = pasadas
+        ? "Esta ausencia tiene " + pasadas + " hora(s) de días ya pasados. Al borrarla desaparecen del historial, aunque el recuento de guardias no cambia. ¿Borrar igualmente?"
+        : "¿Borrar esta ausencia? Las guardias se recalcularán.";
+      if(!confirm(texto)) return;
       const { error } = await sb.from("ausencias").delete().eq("id", b.dataset.borrar);
       if(error){ fallo(error, "borrar la ausencia"); return; }
       await cargarPrivado(); pintarAusencias(); pintarParte(); aviso("Ausencia borrada");
@@ -1337,12 +1342,36 @@ function pintarBajas(){
       (sin ? '<span class="chip rojo">'+sin+' sin cubrir</span>' : '<span class="chip">todo cubierto</span>') +
       '</div></div>' +
       '<button class="b sec mini" data-copiar="'+a.id+'">Usar su horario</button>' +
-      '<button class="b peligro mini" data-borrarbaja="'+a.id+'">Dar de alta</button></div>';
+      '<button class="b sec mini" data-alta="'+a.id+'">Dar de alta</button>' +
+      '<button class="b peligro mini" data-borrarbaja="'+a.id+'">Borrar</button></div>';
   }).join("") + '</div>';
 
+  // Dar de alta: se recortan los días que aún no han llegado y se conserva
+  // todo lo ya trabajado, para que el historial del curso quede completo.
+  c.querySelectorAll("[data-alta]").forEach(b=>{
+    b.onclick = async ()=>{
+      const a = D.ausencias.find(x=>x.id === b.dataset.alta);
+      const hoy = hoyISO();
+      const propuesta = prompt("Último día de la baja (aaaa-mm-dd). Se conservan las sustituciones hasta esa fecha y se eliminan las posteriores.", hoy);
+      if(!propuesta) return;
+      const corte = propuesta.trim();
+      const quedan = a.franjas.filter(f=>f.fecha <= corte);
+      if(quedan.length === a.franjas.length){ aviso("No hay días posteriores a esa fecha"); return; }
+      if(!quedan.length){
+        if(!confirm("Con esa fecha no queda ningún día registrado. ¿Borrar la baja entera?")) return;
+        const { error } = await sb.from("ausencias").delete().eq("id", a.id);
+        if(error){ fallo(error, "borrar la baja"); return; }
+      }else{
+        const { error } = await sb.from("ausencias").update({franjas:quedan}).eq("id", a.id);
+        if(error){ fallo(error, "dar de alta"); return; }
+      }
+      await cargarPrivado(); repintarTodo();
+      aviso("Baja cerrada el " + corte + " · historial conservado");
+    };
+  });
   c.querySelectorAll("[data-borrarbaja]").forEach(b=>{
     b.onclick = async ()=>{
-      if(!confirm("¿Dar de alta y borrar esta baja? Desaparecerán todas sus sustituciones pendientes.")) return;
+      if(!confirm("Esto borra la baja ENTERA, incluidos los días ya trabajados y su historial. Si la persona simplemente se reincorpora, usa «Dar de alta». ¿Seguro que quieres borrarla?")) return;
       const { error } = await sb.from("ausencias").delete().eq("id", b.dataset.borrarbaja);
       if(error){ fallo(error, "borrar la baja"); return; }
       await cargarPrivado(); repintarTodo(); aviso("Baja dada de alta");
